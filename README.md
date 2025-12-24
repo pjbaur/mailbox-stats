@@ -29,3 +29,19 @@ I wanted to clean up my GMail, and wanted to find the senders with the most/larg
   - GCP configuration details
   - Code architecture and module organization
   - Any specific development workflows you establish
+
+## Design decisions
+
+Before deploying, we need to decide on an authentication approach:
+Option A: Service Account (simpler, if you only need to access YOUR Gmail)
+
+Best for personal automation
+No OAuth flow needed once set up
+
+Option B: Web OAuth Flow (if you want other users to authorize access to their Gmail)
+
+Proper for multi-user apps
+Stores tokens in Cloud Storage or Secret Manager
+
+I went with **Option A**.
+
