@@ -81,7 +81,7 @@ def gmail_test():
         return jsonify({
             "status": "success",
             "label_count": len(labels),
-            "labels": [label['name'] for label in labels]
+            "labels": [label['name'] for label in labels],
             "auth_method": "Service Account" if os.environ.get('USE_SERVICE_ACCOUNT', '').lower() == 'true' else "OAuth"
         })
     except Exception as e:
