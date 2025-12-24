@@ -18,6 +18,7 @@ build/
 credentials.json
 service-account.json
 token.pickle
+token.json
 
 # IDE
 .vscode/
