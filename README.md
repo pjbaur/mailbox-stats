@@ -1,13 +1,14 @@
-# Gmail Cloud Run App
+# Mailbox Stats (Gmail Cloud Run App)
 
-A serverless Python application deployed on Google Cloud Run that accesses Gmail using service account authentication.
+A serverless Flask app for exploring Gmail data via the Gmail API. It supports
+OAuth for local development and service account domain-wide delegation for Cloud Run.
 
 ## Architecture
 
 - **Platform**: Google Cloud Run (serverless, pay-per-use)
 - **Language**: Python 3.11
 - **Framework**: Flask
-- **Authentication**: Service Account (domain-wide delegation)
+- **Authentication**: OAuth (local) or Service Account (Cloud Run, domain-wide delegation)
 - **API**: Gmail API
 
 ## Prerequisites
@@ -21,13 +22,14 @@ A serverless Python application deployed on Google Cloud Run that accesses Gmail
 
 ```
 gmail-cloud-run/
-├── main.py                 # Flask application
+├── main.py                 # Flask application + Gmail API integration
 ├── requirements.txt        # Python dependencies
 ├── Dockerfile             # Container configuration
 ├── .dockerignore          # Docker ignore rules
 ├── .gitignore            # Git ignore rules
 ├── credentials.json       # OAuth credentials (for local testing, gitignored)
 ├── service-account.json   # Service account key (for Cloud Run, gitignored)
+├── DEPLOYMENT.md          # Quick deployment guide
 └── README.md             # This file
 ```
 
@@ -42,7 +44,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-#### Configure OAuth for Local Testing
+#### Configure OAuth for Local Testing (Local)
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Enable Gmail API
 3. Create OAuth 2.0 credentials (Desktop app)
@@ -112,10 +114,10 @@ ls -l service-account.json
 
 #### E. Update Code with Service Account
 
-The code needs to know which user's Gmail to impersonate. Update `main.py`:
+The code needs to know which user's Gmail to impersonate. Update environment or `.env`:
 
-```python
-# In the get_gmail_service() function, set this to your email:
+```bash
+# In .env, set this to your email:
 USER_EMAIL = 'your-email@yourdomain.com'
 ```
 
@@ -134,6 +136,7 @@ gcloud run deploy gmail-app \
 ```
 
 The service account key will be included in the container during build.
+For a shorter checklist, see `DEPLOYMENT.md`.
 
 ### Option 2: Build and Deploy Separately
 
@@ -185,13 +188,16 @@ curl $SERVICE_URL/gmail-test
 
 ## API Endpoints
 
-- `GET /` - Hello World endpoint
-- `GET /gmail-test` - Lists all Gmail labels for the authenticated user
+- `GET /` - Hello World + auth info
+- `GET /gmail-test` - Lists Gmail labels for the authenticated user
+- `GET /gmail-messages` - Lists recent messages (metadata only)
+- `GET /health` - Health check
 
 ## Environment Variables
 
 - `PORT` - Server port (set automatically by Cloud Run)
 - `USE_SERVICE_ACCOUNT` - Set to "true" to use service account authentication
+- `USER_EMAIL` - Read from environment or `.env` for service account impersonation
 
 ## Cost Considerations
 
@@ -227,7 +233,7 @@ For a learning/development app, you'll likely stay within the free tier.
 - Verify domain-wide delegation is enabled and authorized
 - Check that the Client ID matches in both Cloud Console and Workspace Admin
 - Ensure the correct scopes are authorized
-- Verify `USER_EMAIL` is set correctly in `main.py`
+- Verify `USER_EMAIL` is set correctly in environment or `.env`
 
 ### "Not a valid workspace account"
 - Service account domain-wide delegation requires Google Workspace
