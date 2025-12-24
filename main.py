@@ -14,7 +14,7 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 # Email to impersonate when using service account
 # UPDATE THIS to your email address
-USER_EMAIL = 'paul.baur@gmail.com'
+USER_EMAIL = os.environ.get('USER_EMAIL', 'test.user@example.com')
 
 def get_gmail_service():
     """
