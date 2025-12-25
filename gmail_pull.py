@@ -1,5 +1,20 @@
 from __future__ import annotations
 
+"""Small Gmail API exploration script.
+
+This module authenticates with the Gmail API using OAuth2 and prints a handful
+of mailbox stats and samples (labels, latest inbox metadata, unread count,
+profile totals, and one message snippet). It is intended as a utility for quick
+inspection and validation of API connectivity rather than as a reusable library.
+
+Prerequisites:
+  - credentials.json downloaded from Google Cloud Console OAuth client.
+  - token.json will be created on first run and reused/refreshable thereafter.
+
+Run:
+  python gmail_pull.py
+"""
+
 import base64
 from typing import Optional
 
@@ -11,6 +26,11 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 def get_creds() -> Credentials:
+    """Load cached credentials or run the OAuth flow to create them.
+
+    Returns:
+        Credentials: Authorized Gmail API credentials with read-only scope.
+    """
     creds: Optional[Credentials] = None
 
     # Check if the credentials file exists and is valid
@@ -28,7 +48,8 @@ def get_creds() -> Credentials:
         with open("token.json", "w", encoding="utf-8") as f:
             f.write(creds.to_json())
         return creds
-    
+
+    # First-time auth: open a local server to complete OAuth and cache token.json.
     flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
     creds = flow.run_local_server(port=0)
     with open("token.json", "w", encoding="utf-8") as f:
@@ -36,10 +57,16 @@ def get_creds() -> Credentials:
     return creds
 
 def main() -> None:
+    """Connect to Gmail and print summary data for quick inspection."""
     creds = get_creds()
     service = build("gmail", "v1", credentials=creds)
 
-    def list_labels(service):
+    def list_labels(service) -> None:
+        """List all labels with message/thread counts.
+
+        Args:
+            service: Gmail API service resource from googleapiclient.discovery.build.
+        """
         res = service.users().labels().list(userId="me").execute()
         labels = res.get("labels", [])
         print(f"Labels: {len(labels)}\n")
@@ -57,7 +84,13 @@ def main() -> None:
 
     list_labels(service)
 
-    def latest_inbox_metadata(service, n=20):
+    def latest_inbox_metadata(service, n=20) -> None:
+        """Print metadata headers for the latest N inbox messages.
+
+        Args:
+            service: Gmail API service resource from googleapiclient.discovery.build.
+            n: Maximum number of messages to fetch.
+        """
         resp = service.users().messages().list(
             userId="me", labelIds=["INBOX"], maxResults=n
         ).execute()
@@ -74,6 +107,7 @@ def main() -> None:
                 metadataHeaders=["From", "To", "Subject", "Date"],
             ).execute()
 
+            # Build a simple header map for quick lookups.
             headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
             print("\nID:", msg["id"])
             print(" Date:", headers.get("Date"))
@@ -84,6 +118,7 @@ def main() -> None:
 
     latest_inbox_metadata(service, n=10)
 
+    # Pull unread count from the INBOX system label.
     unread = service.users().labels().get(userId="me", id="INBOX").execute().get("messagesUnread", 0)
     print("Unread INBOX:", unread)
 

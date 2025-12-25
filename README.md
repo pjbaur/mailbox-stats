@@ -174,6 +174,11 @@ curl http://localhost:8080/
 curl http://localhost:8080/gmail-test
 ```
 
+### TODO: What are these programs?
+
+python gmail_pull.py
+python gmail_stats.py
+
 ### Cloud Run Testing
 ```bash
 # Get your service URL
