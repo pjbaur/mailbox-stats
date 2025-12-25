@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git worktree:*)",
+      "Bash(for worktree in .trees/test-phase1 .trees/test-phase2 .trees/test-phase3)",
+      "Bash(do echo \"=== Status of $worktree ===\")",
+      "Bash(git -C \"$worktree\" status --short)",
+      "Bash(done)",
+      "Bash(git branch:*)",
+      "Bash(cat:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nMerge all test worktrees and consolidate tests\n\nConsolidated test files from test-phase1, test-phase2, and test-phase3 worktrees:\n- Unit tests \\(5 files\\) from test-phase1\n- Integration tests \\(5 files\\) from test-phase2\n- E2E tests \\(1 file\\) from test-phase3\n- Merged conftest.py with best fixtures from all phases\n- Added pytest.ini configuration\n- Created complete test directory structure\n- Added .claude/ to .gitignore\n\nAll test phase branches removed and worktrees cleaned up.\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m pip:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd comprehensive test suite documentation to README\n\n- Document 81 tests with 96% coverage\n- Add testing section with pytest commands\n- Include test organization structure\n- Add coverage reporting instructions\n- Update .gitignore for test artifacts \\(.coverage, htmlcov/, .pytest_cache/, .trees/\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(pytest:*)",
+      "Bash(ls:*)",
+      "Bash(python:*)"
+    ]
+  }
+}
