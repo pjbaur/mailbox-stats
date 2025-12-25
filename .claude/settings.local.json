@@ -15,7 +15,8 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd comprehensive test suite documentation to README\n\n- Document 81 tests with 96% coverage\n- Add testing section with pytest commands\n- Include test organization structure\n- Add coverage reporting instructions\n- Update .gitignore for test artifacts \\(.coverage, htmlcov/, .pytest_cache/, .trees/\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(pytest:*)",
       "Bash(ls:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

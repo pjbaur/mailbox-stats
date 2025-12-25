@@ -120,7 +120,7 @@ SENT       msgs= 12,456 unread=      0 threads=  8,901
 ...
 
 ====================================
-Daily Volume (last 30 days)
+Daily Volume (last 30 days, PST)
 ====================================
 2024-11-26    42
 2024-11-27    38
@@ -130,7 +130,7 @@ Examined messages: 5000 (cap=5000)
 Approx total size of examined msgs: 342.5 MB
 
 ====================================
-Top Senders (last 30 days, examined 5000)
+Top Senders (last 30 days, PST, examined 5000)
 ====================================
   421  newsletters@example.com
   318  notifications@github.com
@@ -157,6 +157,28 @@ The script uses several strategies to work efficiently within Gmail API limits:
    - Exponential backoff for rate limit errors (429, 403)
 3. **Request Tracking**: Counts all API calls by endpoint, logged at exit
 4. **Metadata Only**: Fetches message metadata (headers only) instead of full content for efficiency
+
+### Timezone Handling
+
+The script uses **local timezone** for all user-facing date displays while keeping log timestamps in **UTC**:
+
+**User-facing dates (local timezone)**:
+- **Daily volume dates**: Messages are bucketed by local date, not UTC date
+  - A message arriving at 11 PM PST shows on the same day in PST, not the next day in UTC
+- **Date range calculation**: "Last 30 days" calculated from local current time
+- **Section headers**: Display timezone abbreviation (e.g., "Daily Volume (last 30 days, PST)")
+
+**Log timestamps (UTC)**:
+- All logs use UTC timestamps with explicit "UTC" label
+- Format: `2025-12-25 14:30:45 UTC INFO ...`
+- Ensures consistency for troubleshooting across timezones
+
+**Implementation details**:
+- Helper functions: `get_local_tz()` and `get_local_tz_name()`
+- Conversion: `iso_date_from_internal_ms()` converts Gmail timestamps (UTC) to local timezone dates
+- Logging: Uses `logging.Formatter.converter = time.gmtime` for UTC timestamps
+
+**Important**: Date boundaries may shift by ±1 day compared to UTC-based displays. A message at midnight UTC will appear on different local dates depending on timezone offset.
 
 ### Message Sampling
 

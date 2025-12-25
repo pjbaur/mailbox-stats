@@ -53,9 +53,12 @@ SLEEP_BETWEEN_BATCHES = float(os.getenv("SLEEP_BETWEEN_BATCHES", "0.5"))
 SLEEP_EVERY_N_BATCHES = int(os.getenv("SLEEP_EVERY_N_BATCHES", "10"))
 SLEEP_LONG_DURATION = float(os.getenv("SLEEP_LONG_DURATION", "2.0"))
 
+# Configure logging to use UTC timestamps
+logging.Formatter.converter = time.gmtime
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper()),
-    format="%(asctime)s %(levelname)s %(message)s",
+    format="%(asctime)s UTC %(levelname)s %(message)s",
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler("gmail_stats.log", encoding="utf-8"),
@@ -65,6 +68,17 @@ log = logging.getLogger("gmail_stats")
 
 # Conservative email matcher for From headers and sender stats.
 EMAIL_RE = re.compile(r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})", re.IGNORECASE)
+
+
+def get_local_tz():
+    """Get the local timezone as a timezone-aware object."""
+    return datetime.now().astimezone().tzinfo
+
+
+def get_local_tz_name():
+    """Get the local timezone abbreviation (e.g., 'PST', 'EST')."""
+    return datetime.now().astimezone().strftime('%Z')
+
 
 REQUEST_TOTAL = 0
 REQUESTS_BY_ENDPOINT: Dict[str, int] = defaultdict(int)
@@ -139,10 +153,11 @@ def extract_email(from_header: Optional[str]) -> str:
 
 
 def iso_date_from_internal_ms(ms: str) -> str:
-    """Convert Gmail internalDate (milliseconds since epoch) to YYYY-MM-DD."""
-    # internalDate is milliseconds since epoch UTC
-    dt = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
-    return dt.date().isoformat()
+    """Convert Gmail internalDate (milliseconds since epoch) to YYYY-MM-DD in local timezone."""
+    # internalDate is milliseconds since epoch UTC, convert to local timezone
+    dt_utc = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
+    dt_local = dt_utc.astimezone()  # Convert to local timezone
+    return dt_local.date().isoformat()
 
 
 def chunked(xs: List[str], n: int) -> Iterable[List[str]]:
@@ -346,11 +361,12 @@ def main() -> None:
             f"threads={l.get('threadsTotal', 0):>7}"
         )
 
-    since_dt = datetime.now(tz=timezone.utc) - timedelta(days=DAYS)
+    since_dt = datetime.now().astimezone() - timedelta(days=DAYS)
     since_query = f"newer_than:{DAYS}d"
 
     # ----- Tile 3: daily volume last N days (sampled/complete depending on volume) -----
-    print_header(f"Daily Volume (last {DAYS} days)")
+    tz_name = get_local_tz_name()
+    print_header(f"Daily Volume (last {DAYS} days, {tz_name})")
 
     log.info("Building sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
     list_start = time.perf_counter()
@@ -385,7 +401,7 @@ def main() -> None:
 
     # Print last N days, even if some days are missing
     start_date = since_dt.date()
-    end_date = datetime.now(tz=timezone.utc).date()
+    end_date = datetime.now().astimezone().date()
     d = start_date
     while d <= end_date:
         ds = d.isoformat()
@@ -397,7 +413,7 @@ def main() -> None:
     print(f"Approx total size of examined msgs: {approx_mb:.1f} MB")
 
     # ----- Tile 4: top senders (last N days) -----
-    print_header(f"Top Senders (last {DAYS} days, examined {len(messages)})")
+    print_header(f"Top Senders (last {DAYS} days, {tz_name}, examined {len(messages)})")
     for sender, cnt in by_sender.most_common(25):
         print(f"{cnt:>5}  {sender}")
 

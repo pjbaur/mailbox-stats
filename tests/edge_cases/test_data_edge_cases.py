@@ -84,25 +84,25 @@ def test_very_long_email():
 
 
 def test_timestamp_zero():
-    """Test epoch timestamp.
+    """Test epoch timestamp (now uses local timezone).
 
     Timestamp 0 represents the Unix epoch: 1970-01-01 00:00:00 UTC.
-    This should convert to "1970-01-01" in ISO date format.
+    In local timezone, could be 1969-12-31 or 1970-01-01 depending on offset.
     """
     result = iso_date_from_internal_ms("0")
-    assert result == "1970-01-01"
+    assert result in ["1969-12-31", "1970-01-01"]
 
 
 def test_timestamp_far_future():
-    """Test year 2100 timestamp.
+    """Test year 2100 timestamp (now uses local timezone).
 
     Test a timestamp far in the future to ensure the date conversion
     handles large values correctly.
     """
     # 4102444800000 ms = 2100-01-01 00:00:00 UTC
+    # Could be 2099-12-31, 2100-01-01, or 2100-01-02 in local timezone
     result = iso_date_from_internal_ms("4102444800000")
-    assert "2100" in result
-    assert result == "2100-01-01"
+    assert "2099-12-31" in result or "2100-01-01" in result or "2100-01-02" in result
 
     # Test year 2286 (from test plan example)
     # 9999999999999 ms ≈ 2286-11-20
@@ -175,7 +175,7 @@ def test_all_messages_same_sender():
 
 
 def test_all_messages_same_day():
-    """Test all messages on one day.
+    """Test all messages on one day (now uses local timezone).
 
     When all messages are from the same day, the by_day Counter
     should have only one entry. This tests that the daily volume
@@ -184,7 +184,7 @@ def test_all_messages_same_day():
     # Simulate processing messages from same day
     by_day = Counter()
 
-    # All messages on 2024-01-01
+    # All messages at same timestamp
     timestamp = "1704067200000"  # 2024-01-01 00:00:00 UTC
 
     messages = [
@@ -202,15 +202,16 @@ def test_all_messages_same_day():
         iso_date = iso_date_from_internal_ms(msg["internalDate"])
         by_day[iso_date] += 1
 
-    # Should have exactly one day
+    # Should have exactly one day (date depends on local timezone)
     assert len(by_day) == 1
-    assert by_day["2024-01-01"] == 50
+    # First (and only) date should have all 50 messages
+    assert list(by_day.values())[0] == 50
 
     # Daily volume display should still work
     for day, count in sorted(by_day.items()):
         # Formatting from main()
         line = f"{day}  {count:5d}"
-        assert "2024-01-01" in line
+        assert "2024" in line or "2023" in line  # Could be either year depending on timezone
         assert "50" in line
 
 
@@ -265,19 +266,20 @@ def test_message_headers_empty():
 
 
 def test_negative_timestamp():
-    """Test pre-epoch timestamp (negative).
+    """Test pre-epoch timestamp (now uses local timezone).
 
     Timestamps before 1970-01-01 are represented as negative values.
     The code should handle these correctly.
     """
     # -86400000 ms = 1969-12-31 00:00:00 UTC
+    # Could be 1969-12-30 or 1969-12-31 in local timezone
     result = iso_date_from_internal_ms("-86400000")
-    assert result == "1969-12-31"
+    assert result in ["1969-12-30", "1969-12-31"]
 
     # Pre-1970 date
     # -31536000000 ms = 1969-01-01 00:00:00 UTC
     result2 = iso_date_from_internal_ms("-31536000000")
-    assert "1969" in result2
+    assert "1969" in result2 or "1968" in result2
 
 
 def test_malformed_email_patterns():
