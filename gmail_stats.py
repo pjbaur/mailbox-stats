@@ -80,6 +80,11 @@ def get_local_tz_name():
     return datetime.now().astimezone().strftime('%Z')
 
 
+def get_local_tz_offset():
+    """Get the local timezone offset (e.g., '-0800', '+0530')."""
+    return datetime.now().astimezone().strftime('%z')
+
+
 REQUEST_TOTAL = 0
 REQUESTS_BY_ENDPOINT: Dict[str, int] = defaultdict(int)
 
@@ -342,6 +347,11 @@ def main() -> None:
     total_msgs = profile.get("messagesTotal", 0)
     total_threads = profile.get("threadsTotal", 0)
 
+    log.info(
+        "[MAILBOX_PROFILE] account=%s total_messages=%d total_threads=%d",
+        email, total_msgs, total_threads
+    )
+
     print_header("Mailbox Stats Dashboard (Gmail)")
     print(f"Account: {email}")
     print(f"Total messages: {total_msgs}")
@@ -353,7 +363,20 @@ def main() -> None:
     key_names = {"INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "IMPORTANT", "STARRED"}
     key = [l for l in labels if l.get("name") in key_names]
 
+    log.info(
+        "[LABEL_STATS] total_labels=%d key_labels=%s",
+        len(labels),
+        ','.join([l.get('name', l.get('id', '?')) for l in key])
+    )
+
     for l in key:
+        log.info(
+            "[LABEL_DETAIL] label=%s messages=%d unread=%d threads=%d",
+            l.get('name', l.get('id')),
+            l.get('messagesTotal', 0),
+            l.get('messagesUnread', 0),
+            l.get('threadsTotal', 0)
+        )
         print(
             f"{l['name']:<10} "
             f"msgs={l.get('messagesTotal', 0):>7} "
@@ -366,13 +389,34 @@ def main() -> None:
 
     # ----- Tile 3: daily volume last N days (sampled/complete depending on volume) -----
     tz_name = get_local_tz_name()
+    tz_offset = get_local_tz_offset()
     print_header(f"Daily Volume (last {DAYS} days, {tz_name})")
+
+    log.info(
+        "[DAILY_VOLUME_RANGE] timezone=%s(UTC%s) start=%s end=%s days=%d query=%r",
+        tz_name,
+        tz_offset,
+        since_dt.isoformat(),
+        datetime.now().astimezone().isoformat(),
+        DAYS,
+        since_query
+    )
 
     log.info("Building sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
     list_start = time.perf_counter()
     ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=SAMPLE_MAX_IDS)
     log.info("Message list fetch elapsed=%.2fs", time.perf_counter() - list_start)
     log.info("Collected %d message IDs. Starting metadata fetch...", len(ids))
+
+    was_capped = len(ids) >= SAMPLE_MAX_IDS if SAMPLE_MAX_IDS > 0 else False
+    coverage_pct = (len(ids) / total_msgs * 100) if total_msgs > 0 else 0
+    log.info(
+        "[SAMPLING_INFO] requested=%s returned=%d capped=%s coverage=%.1f%%",
+        SAMPLE_MAX_IDS if SAMPLE_MAX_IDS > 0 else "unlimited",
+        len(ids),
+        was_capped,
+        coverage_pct
+    )
 
     if not ids:
         print("No messages found for time window.")
@@ -389,19 +433,64 @@ def main() -> None:
     by_sender = Counter()
     total_size = 0
 
+    # Log timezone conversion example with first message
+    if messages:
+        first_msg_ms = messages[0]["internalDate"]
+        example_utc = datetime.fromtimestamp(int(first_msg_ms) / 1000, tz=timezone.utc)
+        example_local = example_utc.astimezone()
+        log.info(
+            "[TIMEZONE_EXAMPLE] utc=%s local=%s timezone=%s offset=%s",
+            example_utc.isoformat(),
+            example_local.isoformat(),
+            tz_name,
+            tz_offset
+        )
+
     for msg in messages:
         headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
         from_email = extract_email(headers.get("From"))
         iso_date = iso_date_from_internal_ms(msg["internalDate"])
         size = int(msg.get("sizeEstimate", 0))
-        
+
         by_day[iso_date] += 1
         by_sender[from_email] += 1
         total_size += size
 
-    # Print last N days, even if some days are missing
+    # Calculate date range for display and logging
     start_date = since_dt.date()
     end_date = datetime.now().astimezone().date()
+
+    # Log aggregation results
+    days_with_data = len([d for d in by_day.values() if d > 0])
+    date_range_str = f"{start_date.isoformat()}...{end_date.isoformat()}"
+    top_25 = by_sender.most_common(25)
+
+    log.info(
+        "[DAILY_VOLUME_RESULT] query=%r timezone=%s date_range=%s total_messages=%d "
+        "days_examined=%d days_with_data=%d size_mb=%.1f sample_cap=%d",
+        since_query,
+        tz_name,
+        date_range_str,
+        len(messages),
+        (end_date - start_date).days + 1,
+        days_with_data,
+        total_size / (1024 * 1024),
+        SAMPLE_MAX_IDS
+    )
+
+    log.info(
+        "[TOP_SENDERS_RESULT] query=%r timezone=%s total_messages=%d unique_senders=%d "
+        "top_sender=%s(%d) top_25_total=%d",
+        since_query,
+        tz_name,
+        len(messages),
+        len(by_sender),
+        top_25[0][0] if top_25 else 'N/A',
+        top_25[0][1] if top_25 else 0,
+        sum(cnt for _, cnt in top_25)
+    )
+
+    # Print last N days, even if some days are missing
     d = start_date
     while d <= end_date:
         ds = d.isoformat()
@@ -420,6 +509,12 @@ def main() -> None:
     # ----- Tile 5: quick "unread inbox" -----
     inbox = next((l for l in labels if l.get("id") == "INBOX" or l.get("name") == "INBOX"), None)
     if inbox:
+        log.info(
+            "[UNREAD_INBOX] label=INBOX unread=%d total=%d threads=%d",
+            inbox.get('messagesUnread', 0),
+            inbox.get('messagesTotal', 0),
+            inbox.get('threadsTotal', 0)
+        )
         print_header("Unread")
         print(f"INBOX unread: {inbox.get('messagesUnread', 0)}")
 
