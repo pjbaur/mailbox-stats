@@ -194,6 +194,7 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
     SAFE_BATCH_SIZE = 10
     total_batches = (len(msg_ids) + SAFE_BATCH_SIZE - 1) // SAFE_BATCH_SIZE
     log.info(f"Fetching {len(msg_ids)} messages in {total_batches} batches of {SAFE_BATCH_SIZE}")
+    start_time = time.monotonic()
     
     for i, chunk in enumerate(chunked(msg_ids, SAFE_BATCH_SIZE), start=1):
         retry_delay = INITIAL_RETRY_DELAY
@@ -216,7 +217,13 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
                 
                 # Progress logging
                 if i % 50 == 0:
-                    log.info(f"Processed {i}/{total_batches} batches ({len(results)} messages, {100*len(results)/len(msg_ids):.1f}%)")
+                    elapsed = time.monotonic() - start_time
+                    msgs_per_sec = len(results) / elapsed if elapsed > 0 else 0.0
+                    log.info(
+                        f"Processed {i}/{total_batches} batches "
+                        f"({len(results)} messages, {100*len(results)/len(msg_ids):.1f}%, "
+                        f"{msgs_per_sec:.1f} msg/s)"
+                    )
                 
                 # Small delay between batches
                 time.sleep(BATCH_DELAY)  # between batches of 10 = ~100 msg/sec
