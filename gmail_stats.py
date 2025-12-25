@@ -1,5 +1,20 @@
 from __future__ import annotations
 
+"""Gmail mailbox statistics dashboard.
+
+This script authenticates with the Gmail API, samples recent messages, and
+prints a small "dashboard" with label totals, daily volume, top senders, and
+unread counts. It is designed as a practical mailbox inspection tool rather
+than a reusable library.
+
+Prerequisites:
+  - OAuth client JSON (see get_creds) in the project root.
+  - A token cache file (token.json) will be created on first run.
+
+Run:
+  python gmail_stats.py
+"""
+
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -27,10 +42,16 @@ logging.basicConfig(
 )
 log = logging.getLogger("gmail_stats")
 
+# Conservative email matcher for From headers and sender stats.
 EMAIL_RE = re.compile(r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})", re.IGNORECASE)
 
 
 def get_creds() -> Credentials:
+    """Load cached credentials or run the OAuth flow to create them.
+
+    Returns:
+        Credentials: Authorized Gmail API credentials with read-only scope.
+    """
     creds: Optional[Credentials] = None
     try:
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -46,6 +67,7 @@ def get_creds() -> Credentials:
             f.write(creds.to_json())
         return creds
 
+    # First-time auth: open a local server to complete OAuth and cache token.json.
     flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
     creds = flow.run_local_server(port=0)
     with open("token.json", "w", encoding="utf-8") as f:
@@ -54,6 +76,7 @@ def get_creds() -> Credentials:
 
 
 def extract_email(from_header: Optional[str]) -> str:
+    """Extract a normalized email address from a From header value."""
     if not from_header:
         return "(unknown)"
     m = EMAIL_RE.search(from_header)
@@ -61,18 +84,30 @@ def extract_email(from_header: Optional[str]) -> str:
 
 
 def iso_date_from_internal_ms(ms: str) -> str:
+    """Convert Gmail internalDate (milliseconds since epoch) to YYYY-MM-DD."""
     # internalDate is milliseconds since epoch UTC
     dt = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
     return dt.date().isoformat()
 
 
 def chunked(xs: List[str], n: int) -> Iterable[List[str]]:
+    """Yield list slices of size n (last chunk may be smaller)."""
     for i in range(0, len(xs), n):
         yield xs[i : i + n]
 
 
 def list_all_message_ids(service, query: str, label_ids: Optional[List[str]], max_ids: int) -> List[str]:
-    """Page through Gmail list() results until max_ids reached (or exhausted)."""
+    """Page through Gmail list() results until max_ids reached (or exhausted).
+
+    Args:
+        service: Gmail API service resource from googleapiclient.discovery.build.
+        query: Gmail search query string (e.g., "newer_than:30d").
+        label_ids: Optional list of label IDs to constrain the query.
+        max_ids: Hard cap on how many IDs to return (0 or None means no cap).
+
+    Returns:
+        List of Gmail message IDs.
+    """
     ids: List[str] = []
     page_token = None
     page = 0
@@ -108,9 +143,14 @@ def list_all_message_ids(service, query: str, label_ids: Optional[List[str]], ma
 
 
 def get_message_metadata(service, msg_id: str) -> Tuple[str, str, int]:
-    """
-    Returns (from_email, iso_date, sizeEstimate) for a message.
-    Uses metadata format for speed and avoids bodies.
+    """Fetch minimal metadata for a single message.
+
+    Args:
+        service: Gmail API service resource from googleapiclient.discovery.build.
+        msg_id: Gmail message ID.
+
+    Returns:
+        Tuple of (from_email, iso_date, sizeEstimate) for the message.
     """
     msg = service.users().messages().get(
         userId="me",
@@ -119,6 +159,7 @@ def get_message_metadata(service, msg_id: str) -> Tuple[str, str, int]:
         metadataHeaders=["From"],
     ).execute()
 
+    # Build a simple header map for quick lookups.
     headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
     from_email = extract_email(headers.get("From"))
     iso_date = iso_date_from_internal_ms(msg["internalDate"])
@@ -127,6 +168,7 @@ def get_message_metadata(service, msg_id: str) -> Tuple[str, str, int]:
 
 
 def label_counts(service) -> List[Dict]:
+    """Fetch detailed label stats for all labels on the mailbox."""
     res = service.users().labels().list(userId="me").execute()
     labels = res.get("labels", [])
     details = []
@@ -139,12 +181,14 @@ def label_counts(service) -> List[Dict]:
 
 
 def print_header(title: str) -> None:
+    """Print a simple ASCII section header for the CLI output."""
     print("\n" + "=" * len(title))
     print(title)
     print("=" * len(title))
 
 
 def main() -> None:
+    """Fetch and print the mailbox stats dashboard."""
     creds = get_creds()
     service = build("gmail", "v1", credentials=creds)
 
@@ -193,7 +237,7 @@ def main() -> None:
         print("No messages found for time window.")
         return
 
-    # Pull metadata for ids and bucket by day + sender
+    # Pull metadata for ids and bucket by day + sender.
     by_day = Counter()
     by_sender = Counter()
     total_size = 0

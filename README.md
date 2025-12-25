@@ -174,10 +174,14 @@ curl http://localhost:8080/
 curl http://localhost:8080/gmail-test
 ```
 
-### TODO: What are these programs?
-
+### Utility Scripts
+```bash
+# Quick inspection and validation of API connectivity
 python gmail_pull.py
+
+# Practice getting mailbox stats
 python gmail_stats.py
+```
 
 ### Cloud Run Testing
 ```bash
