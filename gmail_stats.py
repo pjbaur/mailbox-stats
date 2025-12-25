@@ -39,17 +39,18 @@ load_dotenv()
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 # Configuration from environment
-DAYS = int(os.getenv("DAYS", "30"))
-SAMPLE_MAX_IDS = int(os.getenv("SAMPLE_MAX_IDS", "5000"))
+BATCH_DELAY = float(os.getenv("BATCH_DELAY", "0.25"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
+DAYS = int(os.getenv("DAYS", "30"))
+INITIAL_RETRY_DELAY = float(os.getenv("INITIAL_RETRY_DELAY", "1.0"))
+LOG_EVERY = int(os.getenv("LOG_EVERY", "100"))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
+MAX_RETRY_DELAY = float(os.getenv("MAX_RETRY_DELAY", "60.0"))
+SAMPLE_MAX_IDS = int(os.getenv("SAMPLE_MAX_IDS", "5000"))
 SLEEP_BETWEEN_BATCHES = float(os.getenv("SLEEP_BETWEEN_BATCHES", "0.5"))
 SLEEP_EVERY_N_BATCHES = int(os.getenv("SLEEP_EVERY_N_BATCHES", "10"))
 SLEEP_LONG_DURATION = float(os.getenv("SLEEP_LONG_DURATION", "2.0"))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
-INITIAL_RETRY_DELAY = float(os.getenv("INITIAL_RETRY_DELAY", "1.0"))
-MAX_RETRY_DELAY = float(os.getenv("MAX_RETRY_DELAY", "60.0"))
-LOG_EVERY = int(os.getenv("LOG_EVERY", "100"))
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper()),
@@ -218,7 +219,7 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
                     log.info(f"Processed {i}/{total_batches} batches ({len(results)} messages, {100*len(results)/len(msg_ids):.1f}%)")
                 
                 # Small delay between batches
-                time.sleep(0.05)  # 100ms between batches of 10 = ~100 msg/sec
+                time.sleep(BATCH_DELAY)  # between batches of 10 = ~100 msg/sec
                 
                 break  # Success, exit retry loop
                 
@@ -323,7 +324,7 @@ def main() -> None:
     batch_start = time.perf_counter()
     messages = batch_get_metadata(service, ids)
     batch_elapsed = time.perf_counter() - batch_start
-    log.info(f"Batch metadata fetch complete: elapsed={batch_elapsed:.2fs}, rate={len(messages)/batch_elapsed:.1f} msg/s")
+    log.info(f"Batch metadata fetch complete: elapsed={batch_elapsed:.2f}s, rate={len(messages)/batch_elapsed:.1f} msg/s")
 
     # Aggregate statistics
     by_day = Counter()
