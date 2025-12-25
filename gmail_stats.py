@@ -10,6 +10,7 @@ than a reusable library.
 Prerequisites:
   - OAuth client JSON (see get_creds) in the project root.
   - A token cache file (token.json) will be created on first run.
+  - A .env file with configuration (copy from .env.example)
 
 Run:
   python gmail_stats.py
@@ -19,10 +20,12 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
+import os
 import re
 import time
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -30,12 +33,26 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import BatchHttpRequest
 
+# Load environment variables
+load_dotenv()
+
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-LOG_EVERY = 100  # progress checkpoint cadence
+# Configuration from environment
+DAYS = int(os.getenv("DAYS", "30"))
+SAMPLE_MAX_IDS = int(os.getenv("SAMPLE_MAX_IDS", "5000"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
+SLEEP_BETWEEN_BATCHES = float(os.getenv("SLEEP_BETWEEN_BATCHES", "0.5"))
+SLEEP_EVERY_N_BATCHES = int(os.getenv("SLEEP_EVERY_N_BATCHES", "10"))
+SLEEP_LONG_DURATION = float(os.getenv("SLEEP_LONG_DURATION", "2.0"))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
+INITIAL_RETRY_DELAY = float(os.getenv("INITIAL_RETRY_DELAY", "1.0"))
+MAX_RETRY_DELAY = float(os.getenv("MAX_RETRY_DELAY", "60.0"))
+LOG_EVERY = int(os.getenv("LOG_EVERY", "100"))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL.upper()),
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
         logging.StreamHandler(),
@@ -151,33 +168,16 @@ def list_all_message_ids(service, query: str, label_ids: Optional[List[str]], ma
             return ids
 
 
-def get_message_metadata(service, msg_id: str) -> Tuple[str, str, int]:
-    """Fetch minimal metadata for a single message.
-
+def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
+    """Fetch metadata for multiple messages using batch requests with rate limiting.
+    
     Args:
         service: Gmail API service resource from googleapiclient.discovery.build.
-        msg_id: Gmail message ID.
-
+        msg_ids: List of Gmail message IDs to fetch.
+    
     Returns:
-        Tuple of (from_email, iso_date, sizeEstimate) for the message.
+        List of message metadata dictionaries.
     """
-    msg = service.users().messages().get(
-        userId="me",
-        id=msg_id,
-        format="metadata",
-        metadataHeaders=["From"],
-    ).execute()
-
-    # Build a simple header map for quick lookups.
-    headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
-    from_email = extract_email(headers.get("From"))
-    iso_date = iso_date_from_internal_ms(msg["internalDate"])
-    size = int(msg.get("sizeEstimate", 0))
-    return from_email, iso_date, size
-
-
-def batch_get_metadata(service, msg_ids, batch_size=100):
-    """Fetch metadata for multiple messages using batch requests with rate limiting."""
     results = []
     errors = []
     
@@ -188,11 +188,16 @@ def batch_get_metadata(service, msg_ids, batch_size=100):
             return
         results.append(response)
     
-    for i, chunk in enumerate(chunked(msg_ids, batch_size), start=1):
-        max_retries = 5
-        retry_delay = 1.0  # Start with 1 second
+    # Use smaller batches to avoid "too many concurrent requests"
+    # Gmail allows ~10 concurrent requests, so use batch size of 8-10
+    SAFE_BATCH_SIZE = 10
+    total_batches = (len(msg_ids) + SAFE_BATCH_SIZE - 1) // SAFE_BATCH_SIZE
+    log.info(f"Fetching {len(msg_ids)} messages in {total_batches} batches of {SAFE_BATCH_SIZE}")
+    
+    for i, chunk in enumerate(chunked(msg_ids, SAFE_BATCH_SIZE), start=1):
+        retry_delay = INITIAL_RETRY_DELAY
         
-        for attempt in range(max_retries):
+        for attempt in range(MAX_RETRIES):
             try:
                 batch = service.new_batch_http_request(callback=callback)
                 
@@ -208,27 +213,37 @@ def batch_get_metadata(service, msg_ids, batch_size=100):
                 
                 batch.execute()
                 
-                # Add small delay between batches to avoid rate limits
-                if i % 10 == 0:  # Every 10 batches
-                    log.info(f"Processed {i} batches ({len(results)} messages), pausing briefly...")
-                    time.sleep(2)  # 2 second pause
-                else:
-                    time.sleep(0.5)  # 500ms between batches
+                # Progress logging
+                if i % 50 == 0:
+                    log.info(f"Processed {i}/{total_batches} batches ({len(results)} messages, {100*len(results)/len(msg_ids):.1f}%)")
+                
+                # Small delay between batches
+                time.sleep(0.05)  # 100ms between batches of 10 = ~100 msg/sec
                 
                 break  # Success, exit retry loop
                 
             except HttpError as e:
-                if e.resp.status == 403 and 'rateLimitExceeded' in str(e):
-                    if attempt < max_retries - 1:
-                        log.warning(f"Rate limit hit on batch {i}, retry {attempt+1}/{max_retries}, waiting {retry_delay:.1f}s...")
+                is_rate_limit = (
+                    e.resp.status in [403, 429]
+                )
+                
+                if is_rate_limit:
+                    if attempt < MAX_RETRIES - 1:
+                        log.warning(
+                            f"Rate limit hit on batch {i}/{total_batches}, "
+                            f"retry {attempt+1}/{MAX_RETRIES}, waiting {retry_delay:.1f}s..."
+                        )
                         time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
+                        retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
                     else:
-                        log.error(f"Rate limit exceeded after {max_retries} retries on batch {i}")
+                        log.error(f"Rate limit exceeded after {MAX_RETRIES} retries on batch {i}")
                         raise
                 else:
                     log.error(f"HTTP error on batch {i}: {e}")
                     raise
+            except Exception as e:
+                log.error(f"Unexpected error on batch {i}: {e}")
+                raise
     
     log.info(f"Batch fetch complete: {len(results)} messages retrieved, {len(errors)} errors")
     return results
@@ -256,6 +271,10 @@ def print_header(title: str) -> None:
 
 def main() -> None:
     """Fetch and print the mailbox stats dashboard."""
+    log.info(f"Configuration: DAYS={DAYS}, SAMPLE_MAX_IDS={SAMPLE_MAX_IDS}, BATCH_SIZE={BATCH_SIZE}")
+    log.info(f"Rate limiting: SLEEP_BETWEEN_BATCHES={SLEEP_BETWEEN_BATCHES}s, SLEEP_LONG_DURATION={SLEEP_LONG_DURATION}s every {SLEEP_EVERY_N_BATCHES} batches")
+    log.info(f"Retry config: MAX_RETRIES={MAX_RETRIES}, INITIAL_RETRY_DELAY={INITIAL_RETRY_DELAY}s, MAX_RETRY_DELAY={MAX_RETRY_DELAY}s")
+    
     creds = get_creds()
     service = build("gmail", "v1", credentials=creds)
 
@@ -284,19 +303,13 @@ def main() -> None:
             f"threads={l.get('threadsTotal', 0):>7}"
         )
 
-    # ----- Config for sampled stats -----
-    # Keep this bounded: your mailbox is huge.
-    DAYS = 30
-    SAMPLE_MAX_IDS = 5000      # how many message IDs to examine for sender/day stats
-    BATCH_SIZE = 50            # API-friendly batching
-
     since_dt = datetime.now(tz=timezone.utc) - timedelta(days=DAYS)
     since_query = f"newer_than:{DAYS}d"
 
     # ----- Tile 3: daily volume last N days (sampled/complete depending on volume) -----
     print_header(f"Daily Volume (last {DAYS} days)")
 
-    log.info("Building 30-day sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
+    log.info("Building sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
     list_start = time.perf_counter()
     ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=SAMPLE_MAX_IDS)
     log.info("Message list fetch elapsed=%.2fs", time.perf_counter() - list_start)
@@ -306,17 +319,17 @@ def main() -> None:
         print("No messages found for time window.")
         return
 
-    # Pull metadata for ids and bucket by day + sender.
+    # Fetch all metadata using batching
+    batch_start = time.perf_counter()
+    messages = batch_get_metadata(service, ids)
+    batch_elapsed = time.perf_counter() - batch_start
+    log.info(f"Batch metadata fetch complete: elapsed={batch_elapsed:.2fs}, rate={len(messages)/batch_elapsed:.1f} msg/s")
+
+    # Aggregate statistics
     by_day = Counter()
     by_sender = Counter()
     total_size = 0
 
-    log.info("Fetching metadata in batches of %d...", BATCH_SIZE)
-    batch_start = time.perf_counter()
-    messages = batch_get_metadata(service, ids, batch_size=BATCH_SIZE)
-    log.info("Batch fetch complete: elapsed=%.2fs", time.perf_counter() - batch_start)
-
-    # Process all messages
     for msg in messages:
         headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
         from_email = extract_email(headers.get("From"))
@@ -326,8 +339,6 @@ def main() -> None:
         by_day[iso_date] += 1
         by_sender[from_email] += 1
         total_size += size
-    
-    examined = len(messages)
 
     # Print last N days, even if some days are missing
     start_date = since_dt.date()
@@ -339,15 +350,15 @@ def main() -> None:
         d += timedelta(days=1)
 
     approx_mb = total_size / (1024 * 1024)
-    print(f"\nExamined messages: {examined} (cap={SAMPLE_MAX_IDS})")
+    print(f"\nExamined messages: {len(messages)} (cap={SAMPLE_MAX_IDS})")
     print(f"Approx total size of examined msgs: {approx_mb:.1f} MB")
 
     # ----- Tile 4: top senders (last N days) -----
-    print_header(f"Top Senders (last {DAYS} days, examined {examined})")
+    print_header(f"Top Senders (last {DAYS} days, examined {len(messages)})")
     for sender, cnt in by_sender.most_common(25):
         print(f"{cnt:>5}  {sender}")
 
-    # ----- Tile 5: quick “unread inbox” -----
+    # ----- Tile 5: quick "unread inbox" -----
     inbox = next((l for l in labels if l.get("id") == "INBOX" or l.get("name") == "INBOX"), None)
     if inbox:
         print_header("Unread")
