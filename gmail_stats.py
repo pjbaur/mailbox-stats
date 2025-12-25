@@ -27,6 +27,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import BatchHttpRequest
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
@@ -149,7 +151,6 @@ def list_all_message_ids(service, query: str, label_ids: Optional[List[str]], ma
             return ids
 
 
-
 def get_message_metadata(service, msg_id: str) -> Tuple[str, str, int]:
     """Fetch minimal metadata for a single message.
 
@@ -173,6 +174,64 @@ def get_message_metadata(service, msg_id: str) -> Tuple[str, str, int]:
     iso_date = iso_date_from_internal_ms(msg["internalDate"])
     size = int(msg.get("sizeEstimate", 0))
     return from_email, iso_date, size
+
+
+def batch_get_metadata(service, msg_ids, batch_size=100):
+    """Fetch metadata for multiple messages using batch requests with rate limiting."""
+    results = []
+    errors = []
+    
+    def callback(request_id, response, exception):
+        if exception:
+            log.error(f"Error fetching message {request_id}: {exception}")
+            errors.append((request_id, exception))
+            return
+        results.append(response)
+    
+    for i, chunk in enumerate(chunked(msg_ids, batch_size), start=1):
+        max_retries = 5
+        retry_delay = 1.0  # Start with 1 second
+        
+        for attempt in range(max_retries):
+            try:
+                batch = service.new_batch_http_request(callback=callback)
+                
+                for msg_id in chunk:
+                    batch.add(
+                        service.users().messages().get(
+                            userId="me",
+                            id=msg_id,
+                            format="metadata",
+                            metadataHeaders=["From"]
+                        )
+                    )
+                
+                batch.execute()
+                
+                # Add small delay between batches to avoid rate limits
+                if i % 10 == 0:  # Every 10 batches
+                    log.info(f"Processed {i} batches ({len(results)} messages), pausing briefly...")
+                    time.sleep(2)  # 2 second pause
+                else:
+                    time.sleep(0.5)  # 500ms between batches
+                
+                break  # Success, exit retry loop
+                
+            except HttpError as e:
+                if e.resp.status == 403 and 'rateLimitExceeded' in str(e):
+                    if attempt < max_retries - 1:
+                        log.warning(f"Rate limit hit on batch {i}, retry {attempt+1}/{max_retries}, waiting {retry_delay:.1f}s...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        log.error(f"Rate limit exceeded after {max_retries} retries on batch {i}")
+                        raise
+                else:
+                    log.error(f"HTTP error on batch {i}: {e}")
+                    raise
+    
+    log.info(f"Batch fetch complete: {len(results)} messages retrieved, {len(errors)} errors")
+    return results
 
 
 def label_counts(service) -> List[Dict]:
@@ -252,55 +311,23 @@ def main() -> None:
     by_sender = Counter()
     total_size = 0
 
-    # We can't true-batch-get with this client as easily, so we do sequential gets.
-    # (Still okay for 1k-5k; later we can optimize with batchHttpRequest if you want.)
-    examined = 0
-    metadata_time = 0.0
-    aggregation_time = 0.0
-    t0 = time.time()
-    last_t = t0
+    log.info("Fetching metadata in batches of %d...", BATCH_SIZE)
+    batch_start = time.perf_counter()
+    messages = batch_get_metadata(service, ids, batch_size=BATCH_SIZE)
+    log.info("Batch fetch complete: elapsed=%.2fs", time.perf_counter() - batch_start)
 
-    for i, msg_id in enumerate(ids, start=1):
-        fetch_start = time.perf_counter()
-        from_email, iso_date, size = get_message_metadata(service, msg_id)
-        fetch_duration = time.perf_counter() - fetch_start
-        metadata_time += fetch_duration
-        agg_start = time.perf_counter()
+    # Process all messages
+    for msg in messages:
+        headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
+        from_email = extract_email(headers.get("From"))
+        iso_date = iso_date_from_internal_ms(msg["internalDate"])
+        size = int(msg.get("sizeEstimate", 0))
+        
         by_day[iso_date] += 1
         by_sender[from_email] += 1
         total_size += size
-        examined += 1
-        agg_duration = time.perf_counter() - agg_start
-        aggregation_time += agg_duration
-
-        if i % LOG_EVERY == 0:
-            log.info(
-                "Timing: last_fetch=%.3fs avg_fetch=%.3fs last_agg=%.4fs avg_agg=%.4fs",
-                fetch_duration,
-                metadata_time / i,
-                agg_duration,
-                aggregation_time / i,
-            )
-
-    if i % LOG_EVERY == 0:
-        now = time.time()
-        elapsed = now - t0
-        chunk = now - last_t
-        rate = i / elapsed if elapsed > 0 else 0.0
-        remaining = len(ids) - i
-        approx_remaining_sec = remaining / rate if rate > 0 else float("inf")
-        log.info(
-            "Progress: %d/%d (%.1f%%) rate=%.2f msg/s last_chunk=%.2fs approx_remaining=%.1f min",
-            i, len(ids), (i / len(ids)) * 100.0, rate, chunk, approx_remaining_sec / 60.0
-        )
-        log.info(
-            "Timing: metadata_total=%.2fs avg_metadata=%.3fs agg_total=%.2fs avg_agg=%.3fs",
-            metadata_time,
-            metadata_time / i if i else 0.0,
-            aggregation_time,
-            aggregation_time / i if i else 0.0,
-        )
-        last_t = now
+    
+    examined = len(messages)
 
     # Print last N days, even if some days are missing
     start_date = since_dt.date()

@@ -1,0 +1,79 @@
+2025-12-24 23:17:10,968 INFO OAuth token acquisition: source=refresh elapsed=0.21s
+2025-12-24 23:17:17,348 INFO Building 30-day sample: query='newer_than:30d' cap=5000
+2025-12-24 23:17:17,348 INFO Listing message IDs: page=1 collected=0 query='newer_than:30d' labels=None
+2025-12-24 23:17:17,550 INFO List page=1 returned=500 nextPageToken=yes
+2025-12-24 23:17:17,550 INFO Listing message IDs: page=2 collected=500 query='newer_than:30d' labels=None
+2025-12-24 23:17:17,762 INFO List page=2 returned=500 nextPageToken=yes
+2025-12-24 23:17:17,763 INFO Listing message IDs: page=3 collected=1000 query='newer_than:30d' labels=None
+2025-12-24 23:17:17,934 INFO List page=3 returned=500 nextPageToken=yes
+2025-12-24 23:17:17,934 INFO Listing message IDs: page=4 collected=1500 query='newer_than:30d' labels=None
+2025-12-24 23:17:18,120 INFO List page=4 returned=500 nextPageToken=yes
+2025-12-24 23:17:18,120 INFO Listing message IDs: page=5 collected=2000 query='newer_than:30d' labels=None
+2025-12-24 23:17:18,318 INFO List page=5 returned=500 nextPageToken=yes
+2025-12-24 23:17:18,319 INFO Listing message IDs: page=6 collected=2500 query='newer_than:30d' labels=None
+2025-12-24 23:17:18,508 INFO List page=6 returned=500 nextPageToken=yes
+2025-12-24 23:17:18,508 INFO Listing message IDs: page=7 collected=3000 query='newer_than:30d' labels=None
+2025-12-24 23:17:18,693 INFO List page=7 returned=500 nextPageToken=yes
+2025-12-24 23:17:18,693 INFO Listing message IDs: page=8 collected=3500 query='newer_than:30d' labels=None
+2025-12-24 23:17:18,878 INFO List page=8 returned=500 nextPageToken=yes
+2025-12-24 23:17:18,878 INFO Listing message IDs: page=9 collected=4000 query='newer_than:30d' labels=None
+2025-12-24 23:17:19,092 INFO List page=9 returned=500 nextPageToken=yes
+2025-12-24 23:17:19,092 INFO Listing message IDs: page=10 collected=4500 query='newer_than:30d' labels=None
+2025-12-24 23:17:19,270 INFO List page=10 returned=500 nextPageToken=yes
+
+2025-12-24 23:17:19,270 INFO Message list fetch elapsed=1.92s
+2025-12-24 23:17:19,270 INFO Collected 5000 message IDs. Starting metadata fetch...
+2025-12-24 23:17:30,841 INFO Timing: last_fetch=0.105s avg_fetch=0.116s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:17:42,031 INFO Timing: last_fetch=0.097s avg_fetch=0.114s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:17:52,721 INFO Timing: last_fetch=0.099s avg_fetch=0.111s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:18:03,314 INFO Timing: last_fetch=0.106s avg_fetch=0.110s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:18:14,121 INFO Timing: last_fetch=0.103s avg_fetch=0.110s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:18:24,596 INFO Timing: last_fetch=0.094s avg_fetch=0.109s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:18:35,040 INFO Timing: last_fetch=0.096s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:18:45,901 INFO Timing: last_fetch=0.113s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:18:56,575 INFO Timing: last_fetch=0.121s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:19:07,103 INFO Timing: last_fetch=0.100s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:19:17,625 INFO Timing: last_fetch=0.093s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:19:28,364 INFO Timing: last_fetch=0.156s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:19:38,956 INFO Timing: last_fetch=0.101s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:19:49,725 INFO Timing: last_fetch=0.096s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:20:00,219 INFO Timing: last_fetch=0.105s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:20:11,082 INFO Timing: last_fetch=0.100s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:20:21,866 INFO Timing: last_fetch=0.108s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:20:32,728 INFO Timing: last_fetch=0.110s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:20:43,509 INFO Timing: last_fetch=0.105s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:20:54,549 INFO Timing: last_fetch=0.106s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:21:05,640 INFO Timing: last_fetch=0.094s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:21:16,551 INFO Timing: last_fetch=0.111s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:21:27,160 INFO Timing: last_fetch=0.099s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:21:37,554 INFO Timing: last_fetch=0.151s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:21:48,562 INFO Timing: last_fetch=0.125s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:21:59,336 INFO Timing: last_fetch=0.142s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:22:09,879 INFO Timing: last_fetch=0.121s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:22:20,318 INFO Timing: last_fetch=0.102s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:22:31,080 INFO Timing: last_fetch=0.105s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:22:41,516 INFO Timing: last_fetch=0.102s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:22:52,544 INFO Timing: last_fetch=0.094s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:23:03,215 INFO Timing: last_fetch=0.110s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:23:14,213 INFO Timing: last_fetch=0.199s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:23:24,844 INFO Timing: last_fetch=0.098s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:23:36,095 INFO Timing: last_fetch=0.107s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:23:46,421 INFO Timing: last_fetch=0.103s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:23:57,060 INFO Timing: last_fetch=0.105s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:24:07,788 INFO Timing: last_fetch=0.108s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:24:18,461 INFO Timing: last_fetch=0.133s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:24:29,340 INFO Timing: last_fetch=0.153s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:24:40,031 INFO Timing: last_fetch=0.102s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:24:50,700 INFO Timing: last_fetch=0.112s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:25:01,305 INFO Timing: last_fetch=0.114s avg_fetch=0.107s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:25:12,387 INFO Timing: last_fetch=0.094s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:25:24,353 INFO Timing: last_fetch=0.110s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:25:37,002 INFO Timing: last_fetch=0.113s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:25:48,109 INFO Timing: last_fetch=0.124s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:25:59,243 INFO Timing: last_fetch=0.133s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:26:10,155 INFO Timing: last_fetch=0.109s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:26:21,189 INFO Timing: last_fetch=0.105s avg_fetch=0.108s last_agg=0.0000s avg_agg=0.0000s
+2025-12-24 23:26:21,189 INFO Progress: 5000/5000 (100.0%) rate=9.23 msg/s last_chunk=541.92s approx_remaining=0.0 min
+2025-12-24 23:26:21,189 INFO Timing: metadata_total=541.89s avg_metadata=0.108s agg_total=0.03s avg_agg=0.000s
+
+main*​ via 🐍 v3.12.12 (.venv) mailbox-stats 9m11s
