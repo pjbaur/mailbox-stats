@@ -52,6 +52,8 @@ def get_creds() -> Credentials:
     Returns:
         Credentials: Authorized Gmail API credentials with read-only scope.
     """
+    t0 = time.perf_counter()
+    source = "unknown"
     creds: Optional[Credentials] = None
     try:
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -59,12 +61,16 @@ def get_creds() -> Credentials:
         creds = None
 
     if creds and creds.valid:
+        source = "cache"
+        log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
         return creds
 
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
         with open("token.json", "w", encoding="utf-8") as f:
             f.write(creds.to_json())
+        source = "refresh"
+        log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
         return creds
 
     # First-time auth: open a local server to complete OAuth and cache token.json.
@@ -72,6 +78,8 @@ def get_creds() -> Credentials:
     creds = flow.run_local_server(port=0)
     with open("token.json", "w", encoding="utf-8") as f:
         f.write(creds.to_json())
+    source = "oauth_flow"
+    log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
     return creds
 
 
@@ -230,7 +238,9 @@ def main() -> None:
     print_header(f"Daily Volume (last {DAYS} days)")
 
     log.info("Building 30-day sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
+    list_start = time.perf_counter()
     ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=SAMPLE_MAX_IDS)
+    log.info("Message list fetch elapsed=%.2fs", time.perf_counter() - list_start)
     log.info("Collected %d message IDs. Starting metadata fetch...", len(ids))
 
     if not ids:
@@ -245,15 +255,32 @@ def main() -> None:
     # We can't true-batch-get with this client as easily, so we do sequential gets.
     # (Still okay for 1k-5k; later we can optimize with batchHttpRequest if you want.)
     examined = 0
+    metadata_time = 0.0
+    aggregation_time = 0.0
     t0 = time.time()
     last_t = t0
 
     for i, msg_id in enumerate(ids, start=1):
+        fetch_start = time.perf_counter()
         from_email, iso_date, size = get_message_metadata(service, msg_id)
+        fetch_duration = time.perf_counter() - fetch_start
+        metadata_time += fetch_duration
+        agg_start = time.perf_counter()
         by_day[iso_date] += 1
         by_sender[from_email] += 1
         total_size += size
         examined += 1
+        agg_duration = time.perf_counter() - agg_start
+        aggregation_time += agg_duration
+
+        if i % LOG_EVERY == 0:
+            log.info(
+                "Timing: last_fetch=%.3fs avg_fetch=%.3fs last_agg=%.4fs avg_agg=%.4fs",
+                fetch_duration,
+                metadata_time / i,
+                agg_duration,
+                aggregation_time / i,
+            )
 
     if i % LOG_EVERY == 0:
         now = time.time()
@@ -265,6 +292,13 @@ def main() -> None:
         log.info(
             "Progress: %d/%d (%.1f%%) rate=%.2f msg/s last_chunk=%.2fs approx_remaining=%.1f min",
             i, len(ids), (i / len(ids)) * 100.0, rate, chunk, approx_remaining_sec / 60.0
+        )
+        log.info(
+            "Timing: metadata_total=%.2fs avg_metadata=%.3fs agg_total=%.2fs avg_agg=%.3fs",
+            metadata_time,
+            metadata_time / i if i else 0.0,
+            aggregation_time,
+            aggregation_time / i if i else 0.0,
         )
         last_t = now
 
