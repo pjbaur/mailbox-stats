@@ -58,6 +58,7 @@ A Python script to analyze your Gmail mailbox with batch processing, rate limiti
 - `LOG_LEVEL=INFO` - Logging verbosity
 - `LOG_FILE=gmail_stats.log` - Log file location
 - `LOG_EVERY=100` - Progress log frequency
+- API request totals are logged at shutdown; only successful HTTP calls are counted (failed calls are not included).
 
 ## Tuning for Rate Limits
 

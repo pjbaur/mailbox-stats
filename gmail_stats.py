@@ -19,6 +19,7 @@ Run:
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import atexit
 import logging
 import os
 import re
@@ -64,6 +65,32 @@ log = logging.getLogger("gmail_stats")
 
 # Conservative email matcher for From headers and sender stats.
 EMAIL_RE = re.compile(r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})", re.IGNORECASE)
+
+REQUEST_TOTAL = 0
+REQUESTS_BY_ENDPOINT: Dict[str, int] = defaultdict(int)
+
+
+def count_request(endpoint: str, count: int = 1) -> None:
+    global REQUEST_TOTAL
+    REQUEST_TOTAL += count
+    REQUESTS_BY_ENDPOINT[endpoint] += count
+
+
+def execute_request(request, endpoint: str):
+    count_request(endpoint)
+    return request.execute()
+
+
+def log_request_totals() -> None:
+    if REQUEST_TOTAL == 0:
+        log.info("API request totals: none")
+        return
+    log.info("API request totals: %d", REQUEST_TOTAL)
+    for endpoint, count in sorted(REQUESTS_BY_ENDPOINT.items(), key=lambda x: (-x[1], x[0])):
+        log.info("API request totals by endpoint: %s=%d", endpoint, count)
+
+
+atexit.register(log_request_totals)
 
 
 def get_creds() -> Credentials:
@@ -145,13 +172,16 @@ def list_all_message_ids(service, query: str, label_ids: Optional[List[str]], ma
         log.info("Listing message IDs: page=%d collected=%d query=%r labels=%s",
                  page, len(ids), query, label_ids)
 
-        resp = service.users().messages().list(
+        resp = execute_request(
+            service.users().messages().list(
             userId="me",
             q=query,
             labelIds=label_ids,
             maxResults=min(500, max_ids - len(ids)) if max_ids else 500,
             pageToken=page_token,
-        ).execute()
+            ),
+            "users.messages.list",
+        )
 
         batch = resp.get("messages", [])
         log.info("List page=%d returned=%d nextPageToken=%s",
@@ -204,6 +234,7 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
                 batch = service.new_batch_http_request(callback=callback)
                 
                 for msg_id in chunk:
+                    count_request("users.messages.get")
                     batch.add(
                         service.users().messages().get(
                             userId="me",
@@ -214,6 +245,7 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
                     )
                 
                 batch.execute()
+                count_request("batch.execute")
                 
                 # Progress logging
                 if i % 50 == 0:
@@ -259,11 +291,14 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
 
 def label_counts(service) -> List[Dict]:
     """Fetch detailed label stats for all labels on the mailbox."""
-    res = service.users().labels().list(userId="me").execute()
+    res = execute_request(service.users().labels().list(userId="me"), "users.labels.list")
     labels = res.get("labels", [])
     details = []
     for lab in labels:
-        d = service.users().labels().get(userId="me", id=lab["id"]).execute()
+        d = execute_request(
+            service.users().labels().get(userId="me", id=lab["id"]),
+            "users.labels.get",
+        )
         details.append(d)
     # Sort: system labels first-ish by name
     details.sort(key=lambda x: x.get("name", "").lower())
@@ -287,7 +322,7 @@ def main() -> None:
     service = build("gmail", "v1", credentials=creds)
 
     # ----- Tile 1: profile totals -----
-    profile = service.users().getProfile(userId="me").execute()
+    profile = execute_request(service.users().getProfile(userId="me"), "users.getProfile")
     email = profile.get("emailAddress")
     total_msgs = profile.get("messagesTotal", 0)
     total_threads = profile.get("threadsTotal", 0)
