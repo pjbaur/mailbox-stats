@@ -34,3 +34,9 @@ Thumbs.db
 # Environment
 .env
 .env.local.claude/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.trees/

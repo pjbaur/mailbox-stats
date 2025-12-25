@@ -162,7 +162,71 @@ gcloud run services describe gmail-app --region us-central1 --format 'value(stat
 
 ## Testing
 
+### Automated Test Suite
+
+The project includes a comprehensive test suite with 81 tests covering unit, integration, and end-to-end scenarios. Test coverage: **96%**.
+
+#### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run specific test category
+pytest tests/unit/           # Unit tests only
+pytest tests/integration/    # Integration tests only
+pytest tests/e2e/            # End-to-end tests only
+
+# Run with coverage report
+pytest --cov=gmail_stats --cov-report=html
+# Coverage report generated in htmlcov/index.html
+
+# Run tests by priority marker
+pytest -m p0                 # Critical priority tests
+pytest -m "p0 or p1"         # High priority tests
+pytest -m "not slow"         # Skip slow performance tests
+```
+
+#### Test Organization
+
+```
+tests/
+├── unit/                    # Unit tests (pure functions)
+│   ├── test_email_extraction.py
+│   ├── test_date_conversion.py
+│   ├── test_chunked.py
+│   ├── test_print_header.py
+│   └── test_request_tracking.py
+├── integration/             # Integration tests (with mocks)
+│   ├── test_execute_request.py
+│   ├── test_get_creds.py
+│   ├── test_list_all_message_ids.py
+│   ├── test_batch_get_metadata.py
+│   └── test_label_counts.py
+├── e2e/                     # End-to-end workflow tests
+│   └── test_main_workflow.py
+└── conftest.py             # Shared fixtures
+```
+
+#### Test Dependencies
+
+Required packages (already installed if you followed setup):
+- `pytest` - Testing framework
+- `pytest-mock` - Mocking support
+- `pytest-cov` - Coverage reporting
+
+Install test dependencies:
+```bash
+pip install pytest pytest-mock pytest-cov
+```
+
+For detailed test plan and implementation guide, see `TEST_PLAN_GMAIL_STATS.md`.
+
 ### Local Testing
+
 ```bash
 # Start local server
 python main.py
