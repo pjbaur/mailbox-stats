@@ -287,13 +287,14 @@ def list_all_message_ids_random(service, query: str, label_ids: Optional[List[st
     return sampled_ids
 
 
-def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
+def batch_get_metadata(service, msg_ids: List[str], full_metadata: bool = False) -> List[Dict]:
     """Fetch metadata for multiple messages using batch requests with rate limiting.
-    
+
     Args:
         service: Gmail API service resource from googleapiclient.discovery.build.
         msg_ids: List of Gmail message IDs to fetch.
-    
+        full_metadata: If True, fetch all headers and payload structure. If False, fetch only "From" header.
+
     Returns:
         List of message metadata dictionaries.
     """
@@ -323,14 +324,25 @@ def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
                 
                 for msg_id in chunk:
                     count_request("users.messages.get")
-                    batch.add(
-                        service.users().messages().get(
-                            userId="me",
-                            id=msg_id,
-                            format="metadata",
-                            metadataHeaders=["From"]
+                    # Fetch all headers + payload structure if full_metadata, otherwise just "From"
+                    if full_metadata:
+                        batch.add(
+                            service.users().messages().get(
+                                userId="me",
+                                id=msg_id,
+                                format="metadata"
+                                # No metadataHeaders = fetch all headers
+                            )
                         )
-                    )
+                    else:
+                        batch.add(
+                            service.users().messages().get(
+                                userId="me",
+                                id=msg_id,
+                                format="metadata",
+                                metadataHeaders=["From"]
+                            )
+                        )
                 
                 batch.execute()
                 count_request("batch.execute")
@@ -521,8 +533,11 @@ def main(args=None) -> None:
         return
 
     # Fetch all metadata using batching
+    # When using random sampling, fetch complete metadata (all headers + payload structure)
+    metadata_scope = "all headers + payload structure" if args.random_sample else "From header only"
+    log.info(f"Fetching metadata: scope={metadata_scope}")
     batch_start = time.perf_counter()
-    messages = batch_get_metadata(service, ids)
+    messages = batch_get_metadata(service, ids, full_metadata=args.random_sample)
     batch_elapsed = time.perf_counter() - batch_start
     log.info(f"Batch metadata fetch complete: elapsed={batch_elapsed:.2f}s, rate={len(messages)/batch_elapsed:.1f} msg/s")
 

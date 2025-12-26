@@ -119,17 +119,23 @@ python gmail_stats.py --random-sample
 **How it works:**
 - Fetches ALL message IDs matching the time window query (e.g., last 30 days)
 - Randomly samples `SAMPLE_MAX_IDS` messages from the complete set
+- **Fetches complete metadata**: All email headers + payload structure (vs. just "From" header in default mode)
 - Provides unbiased statistical representation across the time window
 
 **Performance trade-off:**
 - **Chronological**: ~10 API calls for 5,000 messages (stops early)
 - **Random**: ~40 API calls for 20,000 available messages (fetches all before sampling)
-- Both methods fetch the same number of message metadata (e.g., 5,000)
+- Both methods fetch the same number of messages (e.g., 5,000), but different metadata depth
+
+**Metadata fetched:**
+- **Chronological (default)**: Minimal metadata - "From" header, timestamp, size estimate
+- **Random sampling**: Complete metadata - all headers (To, Cc, Subject, Date, etc.) + payload structure (MIME parts, attachments info, etc., but not message body)
 
 **When to use random sampling:**
 - Statistical analysis requiring unbiased samples
 - Detecting patterns distributed throughout the time window
 - Avoiding recency bias in sender/volume statistics
+- Need complete email metadata (all headers, payload structure) for analysis
 
 **When to use chronological (default):**
 - Quick mailbox inspection focused on recent activity
