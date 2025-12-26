@@ -81,7 +81,7 @@ def test_main_with_random_sample_flag(mock_gmail_environment, mocker, caplog):
     2. Calls list_all_message_ids_random() instead of list_all_message_ids()
     """
     # Create args with random_sample=True
-    args = Namespace(random_sample=True)
+    args = Namespace(random_sample=True, sample_size=None)
 
     # Spy on list_all_message_ids_random to verify it's called
     original_random = mocker.spy(__import__('gmail_stats'), 'list_all_message_ids_random')
@@ -108,7 +108,7 @@ def test_main_without_random_sample_flag(mock_gmail_environment, mocker, caplog)
     2. Calls list_all_message_ids() instead of list_all_message_ids_random()
     """
     # Create args with random_sample=False
-    args = Namespace(random_sample=False)
+    args = Namespace(random_sample=False, sample_size=None)
 
     # Run main with chronological sampling
     with caplog.at_level("INFO"):
@@ -128,7 +128,7 @@ def test_main_logs_sampling_parameters(mock_gmail_environment, mocker, caplog):
     - max_ids
     - days
     """
-    args = Namespace(random_sample=True)
+    args = Namespace(random_sample=True, sample_size=None)
 
     with caplog.at_level("INFO"):
         main(args)
@@ -173,14 +173,14 @@ def test_integration_random_vs_chronological_sampling(mock_gmail_environment, mo
     original_list_all = mocker.spy(__import__('gmail_stats'), 'list_all_message_ids')
 
     # Run with chronological sampling
-    args_chrono = Namespace(random_sample=False)
+    args_chrono = Namespace(random_sample=False, sample_size=None)
     main(args_chrono)
 
     # Note: Due to mocking, we can't easily capture the exact IDs,
     # but we verified the code paths execute without errors
 
     # Run with random sampling
-    args_random = Namespace(random_sample=True)
+    args_random = Namespace(random_sample=True, sample_size=None)
     main(args_random)
 
     # Both runs should complete successfully (no exceptions raised)

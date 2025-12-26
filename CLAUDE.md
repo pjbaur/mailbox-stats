@@ -144,6 +144,30 @@ python gmail_stats.py --random-sample
 
 The sampling method used is logged with `[SAMPLING_METHOD]` for auditability.
 
+#### Sample Size
+
+Control the number of messages to analyze with the `--sample-size` option:
+
+```bash
+# Sample 1000 messages (overrides SAMPLE_MAX_IDS from .env)
+python gmail_stats.py --sample-size 1000
+
+# Random sample of 2500 messages with full metadata
+python gmail_stats.py --random-sample --sample-size 2500
+
+# Unlimited sampling (analyze ALL messages in time window)
+python gmail_stats.py --sample-size 0
+```
+
+**Default behavior:**
+- Without `--sample-size`: Uses `SAMPLE_MAX_IDS` from `.env` (default: 5000)
+- With `--sample-size N`: Overrides the `.env` setting for this run
+
+**Use cases:**
+- Quick tests: `--sample-size 100`
+- Full analysis: `--sample-size 0` (unlimited)
+- Custom analysis: `--sample-size 2500`
+
 ### Example Output
 
 ```

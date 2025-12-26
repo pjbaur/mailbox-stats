@@ -422,6 +422,12 @@ def parse_args():
         action='store_true',
         help='Use random sampling instead of chronological (newest first)'
     )
+    parser.add_argument(
+        '--sample-size',
+        type=int,
+        metavar='N',
+        help='Number of messages to sample (default: SAMPLE_MAX_IDS from .env, typically 5000). Use 0 for unlimited.'
+    )
     return parser.parse_args()
 
 
@@ -430,7 +436,12 @@ def main(args=None) -> None:
     if args is None:
         args = parse_args()
 
+    # Determine effective sample size: CLI arg takes precedence over env var
+    sample_size = args.sample_size if args.sample_size is not None else SAMPLE_MAX_IDS
+
     log.info(f"Configuration: DAYS={DAYS}, SAMPLE_MAX_IDS={SAMPLE_MAX_IDS}, BATCH_SIZE={BATCH_SIZE}")
+    if args.sample_size is not None:
+        log.info(f"Sample size overridden by CLI: {sample_size}")
     log.info(f"Rate limiting: SLEEP_BETWEEN_BATCHES={SLEEP_BETWEEN_BATCHES}s, SLEEP_LONG_DURATION={SLEEP_LONG_DURATION}s every {SLEEP_EVERY_N_BATCHES} batches")
     log.info(f"Retry config: MAX_RETRIES={MAX_RETRIES}, INITIAL_RETRY_DELAY={INITIAL_RETRY_DELAY}s, MAX_RETRY_DELAY={MAX_RETRY_DELAY}s")
     
@@ -504,25 +515,25 @@ def main(args=None) -> None:
         "[SAMPLING_METHOD] method=%s query=%r max_ids=%d days=%d",
         sampling_method,
         since_query,
-        SAMPLE_MAX_IDS,
+        sample_size,
         DAYS
     )
 
-    log.info("Building sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
+    log.info("Building sample: query=%r cap=%d", since_query, sample_size)
     list_start = time.perf_counter()
     # Build sample using selected sampling strategy
     if args.random_sample:
-        ids = list_all_message_ids_random(service, since_query, None, SAMPLE_MAX_IDS)
+        ids = list_all_message_ids_random(service, since_query, None, sample_size)
     else:
-        ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=SAMPLE_MAX_IDS)
+        ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=sample_size)
     log.info("Message list fetch elapsed=%.2fs", time.perf_counter() - list_start)
     log.info("Collected %d message IDs. Starting metadata fetch...", len(ids))
 
-    was_capped = len(ids) >= SAMPLE_MAX_IDS if SAMPLE_MAX_IDS > 0 else False
+    was_capped = len(ids) >= sample_size if sample_size > 0 else False
     coverage_pct = (len(ids) / total_msgs * 100) if total_msgs > 0 else 0
     log.info(
         "[SAMPLING_INFO] requested=%s returned=%d capped=%s coverage=%.1f%%",
-        SAMPLE_MAX_IDS if SAMPLE_MAX_IDS > 0 else "unlimited",
+        sample_size if sample_size > 0 else "unlimited",
         len(ids),
         was_capped,
         coverage_pct
@@ -588,7 +599,7 @@ def main(args=None) -> None:
         (end_date - start_date).days + 1,
         days_with_data,
         total_size / (1024 * 1024),
-        SAMPLE_MAX_IDS
+        sample_size
     )
 
     log.info(
@@ -611,7 +622,7 @@ def main(args=None) -> None:
         d += timedelta(days=1)
 
     approx_mb = total_size / (1024 * 1024)
-    print(f"\nExamined messages: {len(messages)} (cap={SAMPLE_MAX_IDS})")
+    print(f"\nExamined messages: {len(messages)} (cap={sample_size})")
     print(f"Approx total size of examined msgs: {approx_mb:.1f} MB")
 
     # ----- Tile 4: top senders (last N days) -----
