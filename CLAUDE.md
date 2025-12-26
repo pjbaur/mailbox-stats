@@ -131,6 +131,11 @@ python gmail_stats.py --random-sample
 - **Chronological (default)**: Minimal metadata - "From" header, timestamp, size estimate
 - **Random sampling**: Complete metadata - all headers (To, Cc, Subject, Date, etc.) + payload structure (MIME parts, attachments info, etc., but not message body)
 
+**Metadata logging:**
+- **Random sampling**: All complete message metadata is logged to `gmail_stats.log` in JSON format with `[MESSAGE_METADATA]` tags
+- Parse logs with: `grep "\[MESSAGE_METADATA\]" gmail_stats.log | cut -d' ' -f5- | jq`
+- Each message logged includes: all headers, payload structure, labels, thread ID, size, and timestamp
+
 **When to use random sampling:**
 - Statistical analysis requiring unbiased samples
 - Detecting patterns distributed throughout the time window

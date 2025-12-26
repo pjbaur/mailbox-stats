@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import argparse
 import atexit
+import json
 import logging
 import os
 import random
@@ -551,6 +552,14 @@ def main(args=None) -> None:
     messages = batch_get_metadata(service, ids, full_metadata=args.random_sample)
     batch_elapsed = time.perf_counter() - batch_start
     log.info(f"Batch metadata fetch complete: elapsed={batch_elapsed:.2f}s, rate={len(messages)/batch_elapsed:.1f} msg/s")
+
+    # Log complete message metadata when using random sampling
+    if args.random_sample:
+        log.info("[MESSAGE_METADATA_START] Logging %d messages with complete metadata", len(messages))
+        for i, msg in enumerate(messages, 1):
+            # Log the complete message metadata as JSON
+            log.info("[MESSAGE_METADATA] msg_num=%d/%d data=%s", i, len(messages), json.dumps(msg, default=str))
+        log.info("[MESSAGE_METADATA_END] Logged %d messages", len(messages))
 
     # Aggregate statistics
     by_day = Counter()
