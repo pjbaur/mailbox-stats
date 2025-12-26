@@ -9,9 +9,13 @@ Gmail Statistics Dashboard - A command-line tool that analyzes Gmail mailbox dat
 - **Mailbox totals**: Overall message and thread counts
 - **Label statistics**: Message counts across key labels (INBOX, SENT, DRAFT, SPAM, TRASH, IMPORTANT, STARRED)
 - **Daily volume trends**: Message distribution over a configurable time window (default: 30 days)
-- **Top senders**: Ranked list of email senders by message count
+- **Top senders by message count**: Ranked list of email senders and domains by message volume
+- **Top senders by storage size**: Identify which senders/domains consume the most mailbox space
+- **Attachment statistics**: Track attachment presence per sender (requires `--random-sample` mode)
 - **Size estimates**: Approximate total size of examined messages
 - **Unread counts**: Quick overview of unread messages in INBOX
+- **Historical tracking**: SQLite database persistence for trend analysis over time
+- **CSV export**: Export statistics for external analysis
 
 This tool is designed as a practical inspection utility rather than a reusable library. It uses sampling to handle large mailboxes efficiently while staying within Gmail API rate limits.
 
@@ -30,12 +34,17 @@ This tool is designed as a practical inspection utility rather than a reusable l
 
 ```
 .
-├── gmail_stats.py          # Main script with all functionality
+├── gmail_stats.py          # Main script with core functionality
+├── gmail_stats_db.py       # SQLite persistence layer
+├── gmail_stats_export.py   # CSV export functionality
 ├── client_secret.json      # OAuth2 credentials (user-provided, gitignored)
 ├── token.json             # Cached OAuth token (auto-generated, gitignored)
+├── gmail_stats.db         # SQLite database (auto-generated, gitignored)
 ├── .env                   # Environment configuration (user-provided, gitignored)
 ├── .env.example           # Template for environment variables
 ├── gmail_stats.log        # Execution logs (auto-generated)
+├── sender_stats_*.csv     # CSV exports (optional, gitignored)
+├── run_metadata_*.csv     # Run metadata exports (optional, gitignored)
 └── CLAUDE.md             # This file
 ```
 
@@ -141,6 +150,7 @@ python gmail_stats.py --random-sample
 - Detecting patterns distributed throughout the time window
 - Avoiding recency bias in sender/volume statistics
 - Need complete email metadata (all headers, payload structure) for analysis
+- **Attachment tracking**: Random sampling is REQUIRED for attachment statistics (chronological mode lacks payload.parts data)
 
 **When to use chronological (default):**
 - Quick mailbox inspection focused on recent activity
@@ -148,6 +158,8 @@ python gmail_stats.py --random-sample
 - Monitoring recent inbox trends
 
 The sampling method used is logged with `[SAMPLING_METHOD]` for auditability.
+
+**Important**: Attachment detection is only available in `--random-sample` mode. In chronological mode, the dashboard will show `[Attachment statistics unavailable - use --random-sample to enable]`.
 
 #### Sample Size
 
@@ -172,6 +184,44 @@ python gmail_stats.py --sample-size 0
 - Quick tests: `--sample-size 100`
 - Full analysis: `--sample-size 0` (unlimited)
 - Custom analysis: `--sample-size 2500`
+
+#### CSV Export
+
+Export sender statistics and run metadata to CSV files for external analysis:
+
+```bash
+# Export to current directory
+python gmail_stats.py --random-sample --export-csv
+
+# Export to specific directory
+python gmail_stats.py --random-sample --export-csv --export-dir ./exports
+
+# Full analysis with export
+python gmail_stats.py --random-sample --sample-size 0 --export-csv
+```
+
+**Output files** (timestamped):
+- `sender_stats_domain_YYYYMMDD_HHMMSS.csv`: Domain-level aggregation (message count, size, attachments)
+- `sender_stats_email_YYYYMMDD_HHMMSS.csv`: Email-level aggregation (all senders)
+- `run_metadata_YYYYMMDD_HHMMSS.csv`: Run configuration and totals
+
+**CSV columns**:
+- Domain stats: `domain`, `message_count`, `total_size_mb`, `messages_with_attachments`, `attachment_rate_pct`, `unique_email_addresses`
+- Email stats: `email`, `domain`, `message_count`, `total_size_mb`, `messages_with_attachments`, `attachment_rate_pct`
+- Metadata: `key`, `value` (includes account_email, timestamp, days_analyzed, sample_size, sampling_method, etc.)
+
+**Example**:
+```bash
+python gmail_stats.py --random-sample --export-csv --export-dir ./reports
+```
+
+Output:
+```
+CSV exports written:
+  Domain stats: ./reports/sender_stats_domain_20251225_143022.csv
+  Email stats:  ./reports/sender_stats_email_20251225_143022.csv
+  Run metadata: ./reports/run_metadata_20251225_143022.csv
+```
 
 ### Example Output
 
@@ -274,6 +324,83 @@ Based on typical execution:
 - **Total runtime**: ~1-2 minutes for 5,000 messages
 - **API quota impact**: Moderate (typically <1,000 API calls for default config)
 
+## Data Persistence
+
+The tool includes SQLite database persistence for historical tracking and trend analysis.
+
+### Database Schema
+
+**`gmail_stats.db`** contains two tables:
+
+#### Table: `runs`
+Tracks metadata for each analysis run:
+```sql
+CREATE TABLE runs (
+    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,              -- ISO 8601 UTC timestamp
+    account_email TEXT NOT NULL,
+    days_analyzed INTEGER NOT NULL,
+    sample_size INTEGER NOT NULL,
+    sampling_method TEXT NOT NULL,        -- 'chronological' or 'random'
+    messages_examined INTEGER NOT NULL,
+    total_mailbox_messages INTEGER NOT NULL
+);
+```
+
+#### Table: `sender_stats`
+Stores per-sender aggregation at both domain and email levels:
+```sql
+CREATE TABLE sender_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    aggregation_level TEXT NOT NULL,     -- 'domain' or 'email'
+    sender TEXT NOT NULL,                -- domain (e.g., 'amazon.com') or email address
+    message_count INTEGER NOT NULL,
+    total_size_bytes INTEGER NOT NULL,
+    messages_with_attachments INTEGER,   -- NULL if chronological sampling
+    parent_domain TEXT,                  -- NULL for domain-level rows, domain name for email-level rows
+    FOREIGN KEY (run_id) REFERENCES runs(run_id),
+    UNIQUE(run_id, aggregation_level, sender)
+);
+```
+
+### Database Features
+
+- **Automatic persistence**: Every run is automatically saved to `gmail_stats.db`
+- **Historical trends**: Track sender growth and mailbox size changes over time
+- **Domain + email aggregation**: Dual-level tracking for flexible analysis
+- **Attachment tracking**: When using `--random-sample`, attachment counts are persisted
+- **Indexed queries**: Fast lookups by run_id, sender, and size
+
+### Querying Historical Data
+
+Example using the `get_historical_growth()` function from `gmail_stats_db.py`:
+
+```python
+from gmail_stats_db import get_historical_growth
+
+# Get last 10 runs for a specific sender
+history = get_historical_growth("amazon.com", limit=10)
+for record in history:
+    print(f"{record['timestamp']}: {record['message_count']} messages, {record['total_size_bytes'] / (1024**3):.2f} GB")
+```
+
+### CSV Export
+
+Use the `--export-csv` flag to export data to timestamped CSV files:
+
+```bash
+python gmail_stats.py --random-sample --export-csv --export-dir ./exports
+```
+
+This creates three files:
+- **`sender_stats_domain_YYYYMMDD_HHMMSS.csv`**: Domain-level statistics
+  - Columns: domain, message_count, total_size_mb, messages_with_attachments, attachment_rate_pct, unique_email_addresses
+- **`sender_stats_email_YYYYMMDD_HHMMSS.csv`**: Email-level statistics
+  - Columns: email, domain, message_count, total_size_mb, messages_with_attachments, attachment_rate_pct
+- **`run_metadata_YYYYMMDD_HHMMSS.csv`**: Run configuration and totals
+  - Columns: key, value (includes account_email, timestamp, days_analyzed, sample_size, etc.)
+
 ## Development Guidelines
 
 ### Code Style
@@ -330,16 +457,16 @@ See [Gmail API usage limits](https://developers.google.com/gmail/api/reference/q
 4. **Single account**: Processes one Gmail account per execution
 5. **Email regex**: Conservative pattern may miss some non-standard email formats
 6. **Size estimates**: Gmail's `sizeEstimate` field is approximate
+7. **Attachment detection**: Only available with `--random-sample` flag (chronological mode lacks payload.parts metadata)
 
 ## Future Enhancement Ideas
 
-- Add domain grouping (e.g., all `@github.com` senders combined)
-- Export results to CSV/JSON for external analysis
-- Add size-based sender ranking (largest storage consumers)
 - Implement interactive cleanup suggestions
 - Add filtering by label or custom queries
 - Support batch processing of multiple accounts
 - Create visualization graphs (with matplotlib)
+- Add trend analysis dashboard using historical SQLite data
+- Implement sender whitelisting/blacklisting for focused analysis
 
 ## Security & Privacy Notes
 

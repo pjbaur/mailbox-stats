@@ -160,6 +160,64 @@ def extract_email(from_header: Optional[str]) -> str:
     return m.group(1).lower() if m else from_header.strip().lower()
 
 
+def extract_domain(email: str) -> str:
+    """Extract domain from email address.
+
+    Args:
+        email: Email address (already normalized by extract_email)
+
+    Returns:
+        Domain portion (e.g., 'example.com') or '(unknown)' if not extractable
+    """
+    if email == "(unknown)" or "@" not in email:
+        return "(unknown)"
+    return email.split("@")[1].lower()
+
+
+def has_attachment(payload: dict) -> Optional[bool]:
+    """Detect if message has attachments from payload structure.
+
+    This works WITHOUT fetching attachment data - we only check metadata.
+
+    Args:
+        payload: Message payload dict from Gmail API (format="metadata")
+
+    Returns:
+        True if attachments detected, False if none, None if insufficient data
+    """
+    if not payload or "parts" not in payload:
+        # Single-part message (plain text/HTML only) or insufficient metadata
+        return False
+
+    parts = payload.get("parts", [])
+    for part in parts:
+        # Check for filename (indicates attachment)
+        if part.get("filename"):
+            return True
+        # Check for attachmentId in body (indicates external attachment)
+        if part.get("body", {}).get("attachmentId"):
+            return True
+        # Recursively check nested parts (for multipart/mixed, etc.)
+        if part.get("parts"):
+            if has_attachment({"parts": part["parts"]}):
+                return True
+
+    return False
+
+
+@dataclass
+class SenderStats:
+    """Aggregated statistics for a sender (domain or email)."""
+    message_count: int = 0
+    total_size_bytes: int = 0
+    messages_with_attachments: int = 0
+    emails: Dict[str, int] = None  # For domain-level: email -> count mapping
+
+    def __post_init__(self):
+        if self.emails is None:
+            self.emails = {}
+
+
 def iso_date_from_internal_ms(ms: str) -> str:
     """Convert Gmail internalDate (milliseconds since epoch) to YYYY-MM-DD in local timezone."""
     # internalDate is milliseconds since epoch UTC, convert to local timezone
@@ -429,6 +487,18 @@ def parse_args():
         metavar='N',
         help='Number of messages to sample (default: SAMPLE_MAX_IDS from .env, typically 5000). Use 0 for unlimited.'
     )
+    parser.add_argument(
+        '--export-csv',
+        action='store_true',
+        help='Export statistics to CSV files (3 files: domain stats, email stats, run metadata)'
+    )
+    parser.add_argument(
+        '--export-dir',
+        type=str,
+        default='.',
+        metavar='DIR',
+        help='Directory for CSV exports (default: current directory)'
+    )
     return parser.parse_args()
 
 
@@ -563,8 +633,14 @@ def main(args=None) -> None:
 
     # Aggregate statistics
     by_day = Counter()
-    by_sender = Counter()
     total_size = 0
+
+    # Rich sender statistics
+    domain_stats: Dict[str, SenderStats] = defaultdict(SenderStats)
+    email_stats: Dict[str, SenderStats] = defaultdict(SenderStats)
+
+    # Track if attachment data is available (only in random sample mode)
+    has_attachment_data = args.random_sample
 
     # Log timezone conversion example with first message
     if messages:
@@ -582,12 +658,29 @@ def main(args=None) -> None:
     for msg in messages:
         headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
         from_email = extract_email(headers.get("From"))
+        domain = extract_domain(from_email)
         iso_date = iso_date_from_internal_ms(msg["internalDate"])
         size = int(msg.get("sizeEstimate", 0))
 
+        # Detect attachments (only possible with full metadata)
+        has_attach = has_attachment(msg.get("payload", {})) if has_attachment_data else None
+
+        # Update daily volume (unchanged)
         by_day[iso_date] += 1
-        by_sender[from_email] += 1
         total_size += size
+
+        # Update email-level stats
+        email_stats[from_email].message_count += 1
+        email_stats[from_email].total_size_bytes += size
+        if has_attach:
+            email_stats[from_email].messages_with_attachments += 1
+
+        # Update domain-level stats
+        domain_stats[domain].message_count += 1
+        domain_stats[domain].total_size_bytes += size
+        if has_attach:
+            domain_stats[domain].messages_with_attachments += 1
+        domain_stats[domain].emails[from_email] = domain_stats[domain].emails.get(from_email, 0) + 1
 
     # Calculate date range for display and logging
     start_date = since_dt.date()
@@ -596,7 +689,20 @@ def main(args=None) -> None:
     # Log aggregation results
     days_with_data = len([d for d in by_day.values() if d > 0])
     date_range_str = f"{start_date.isoformat()}...{end_date.isoformat()}"
-    top_25 = by_sender.most_common(25)
+
+    # Sort email senders by message count for logging
+    top_25_emails = sorted(
+        email_stats.items(),
+        key=lambda x: x[1].message_count,
+        reverse=True
+    )[:25]
+
+    # Sort domains by message count for logging
+    top_25_domains = sorted(
+        domain_stats.items(),
+        key=lambda x: x[1].message_count,
+        reverse=True
+    )[:25]
 
     log.info(
         "[DAILY_VOLUME_RESULT] query=%r timezone=%s date_range=%s total_messages=%d "
@@ -612,16 +718,68 @@ def main(args=None) -> None:
     )
 
     log.info(
-        "[TOP_SENDERS_RESULT] query=%r timezone=%s total_messages=%d unique_senders=%d "
-        "top_sender=%s(%d) top_25_total=%d",
+        "[TOP_SENDERS_RESULT] query=%r timezone=%s total_messages=%d unique_emails=%d unique_domains=%d "
+        "top_email=%s(%d) top_domain=%s(%d) top_25_email_total=%d",
         since_query,
         tz_name,
         len(messages),
-        len(by_sender),
-        top_25[0][0] if top_25 else 'N/A',
-        top_25[0][1] if top_25 else 0,
-        sum(cnt for _, cnt in top_25)
+        len(email_stats),
+        len(domain_stats),
+        top_25_emails[0][0] if top_25_emails else 'N/A',
+        top_25_emails[0][1].message_count if top_25_emails else 0,
+        top_25_domains[0][0] if top_25_domains else 'N/A',
+        top_25_domains[0][1].message_count if top_25_domains else 0,
+        sum(stats.message_count for _, stats in top_25_emails)
     )
+
+    # Save to database for historical tracking
+    from gmail_stats_db import save_run
+
+    log.info("Saving run to database...")
+    db_save_start = time.perf_counter()
+    run_id = save_run(
+        account_email=email,
+        days_analyzed=DAYS,
+        sample_size=sample_size,
+        sampling_method=sampling_method,
+        messages_examined=len(messages),
+        total_mailbox_messages=total_msgs,
+        domain_stats=dict(domain_stats),  # Convert defaultdict to dict
+        email_stats=dict(email_stats)
+    )
+    db_save_elapsed = time.perf_counter() - db_save_start
+    log.info(f"Database save complete: run_id={run_id} elapsed={db_save_elapsed:.2f}s")
+
+    # Export to CSV if requested
+    if getattr(args, 'export_csv', False):
+        from gmail_stats_export import export_to_csv
+        from pathlib import Path
+
+        log.info("Exporting to CSV...")
+        export_start = time.perf_counter()
+
+        domain_path, email_path, metadata_path = export_to_csv(
+            domain_stats=dict(domain_stats),
+            email_stats=dict(email_stats),
+            run_metadata={
+                'account_email': email,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'days_analyzed': DAYS,
+                'sample_size': sample_size,
+                'sampling_method': sampling_method,
+                'messages_examined': len(messages),
+                'total_mailbox_messages': total_msgs,
+                'total_size_mb': total_size / (1024 * 1024)
+            },
+            output_dir=Path(getattr(args, 'export_dir', '.'))
+        )
+
+        export_elapsed = time.perf_counter() - export_start
+        log.info(f"CSV export complete: elapsed={export_elapsed:.2f}s")
+        print(f"\nCSV exports written:")
+        print(f"  Domain stats: {domain_path}")
+        print(f"  Email stats:  {email_path}")
+        print(f"  Run metadata: {metadata_path}")
 
     # Print last N days, even if some days are missing
     d = start_date
@@ -634,10 +792,73 @@ def main(args=None) -> None:
     print(f"\nExamined messages: {len(messages)} (cap={sample_size})")
     print(f"Approx total size of examined msgs: {approx_mb:.1f} MB")
 
-    # ----- Tile 4: top senders (last N days) -----
-    print_header(f"Top Senders (last {DAYS} days, {tz_name}, examined {len(messages)})")
-    for sender, cnt in by_sender.most_common(25):
-        print(f"{cnt:>5}  {sender}")
+    # ----- Tile 4: top senders by message count -----
+    print_header(f"Top Senders by Message Count (last {DAYS} days, {tz_name})")
+
+    # Domain-level ranking
+    print("\nBy Domain (Top 20):")
+    sorted_domains = sorted(
+        domain_stats.items(),
+        key=lambda x: x[1].message_count,
+        reverse=True
+    )[:20]
+
+    for domain, stats in sorted_domains:
+        email_count = len(stats.emails)
+        pct = (stats.message_count / len(messages) * 100) if len(messages) > 0 else 0
+        print(f"  {stats.message_count:>5}  {domain:<40} "
+              f"({email_count} {'address' if email_count == 1 else 'addresses'}, {pct:.1f}%)")
+
+    # Email-level ranking
+    print("\nBy Email Address (Top 20):")
+    sorted_emails = sorted(
+        email_stats.items(),
+        key=lambda x: x[1].message_count,
+        reverse=True
+    )[:20]
+
+    for email_addr, stats in sorted_emails:
+        pct = (stats.message_count / len(messages) * 100) if len(messages) > 0 else 0
+        print(f"  {stats.message_count:>5}  {email_addr:<50} ({pct:.1f}%)")
+
+    # ----- Tile 5: top senders by size -----
+    print_header(f"Top Senders by Storage Size (last {DAYS} days, {tz_name})")
+
+    print("\nBy Domain (Top 20):")
+    sorted_domains_size = sorted(
+        domain_stats.items(),
+        key=lambda x: x[1].total_size_bytes,
+        reverse=True
+    )[:20]
+
+    for domain, stats in sorted_domains_size:
+        size_mb = stats.total_size_bytes / (1024 * 1024)
+        size_gb = size_mb / 1024
+        pct = (stats.total_size_bytes / total_size * 100) if total_size > 0 else 0
+
+        if size_gb >= 1.0:
+            print(f"  {size_gb:>6.2f} GB  {domain:<40} ({pct:.1f}% of examined)")
+        else:
+            print(f"  {size_mb:>6.1f} MB  {domain:<40} ({pct:.1f}% of examined)")
+
+    # ----- Tile 6: attachment statistics (if available) -----
+    if has_attachment_data:
+        print_header(f"Attachment Statistics (last {DAYS} days, {tz_name})")
+
+        print("\nBy Domain (Top 20 by attachment count):")
+        sorted_attach = sorted(
+            [(d, s) for d, s in domain_stats.items() if s.messages_with_attachments > 0],
+            key=lambda x: x[1].messages_with_attachments,
+            reverse=True
+        )[:20]
+
+        for domain, stats in sorted_attach:
+            attach_pct = (stats.messages_with_attachments / stats.message_count * 100) if stats.message_count > 0 else 0
+            print(f"  {stats.messages_with_attachments:>5} / {stats.message_count:<5} "
+                  f"({attach_pct:>4.1f}%)  {domain}")
+    else:
+        print_header("Attachment Statistics")
+        print("\n[Attachment statistics unavailable - use --random-sample to enable]")
 
     # ----- Tile 5: quick "unread inbox" -----
     inbox = next((l for l in labels if l.get("id") == "INBOX" or l.get("name") == "INBOX"), None)
