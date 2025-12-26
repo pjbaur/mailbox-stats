@@ -552,45 +552,26 @@ def main(args=None) -> None:
         email, total_msgs, total_threads
     )
 
-    print_header("Mailbox Stats Dashboard (Gmail)")
-    print(f"Account: {email}")
-    print(f"Total messages: {total_msgs}")
-    print(f"Total threads : {total_threads}")
+    # Get timezone name for report header
+    tz_name = get_local_tz_name()
+    generated_time = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')
 
-    # ----- Tile 2: key label counts -----
-    print_header("Key Labels")
+    # Print simplified executive memo style header
+    print("=" * 50)
+    print("Mailbox Stats Report")
+    print(f"Generated: {generated_time} {tz_name}")
+    print("=" * 50)
+    print(f"\nAccount: {email}")
+    print(f"Total messages in mailbox: {total_msgs:,}")
+
+    # Get labels for later use (inbox unread count)
     labels = label_counts(service)
-    key_names = {"INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "IMPORTANT", "STARRED"}
-    key = [l for l in labels if l.get("name") in key_names]
-
-    log.info(
-        "[LABEL_STATS] total_labels=%d key_labels=%s",
-        len(labels),
-        ','.join([l.get('name', l.get('id', '?')) for l in key])
-    )
-
-    for l in key:
-        log.info(
-            "[LABEL_DETAIL] label=%s messages=%d unread=%d threads=%d",
-            l.get('name', l.get('id')),
-            l.get('messagesTotal', 0),
-            l.get('messagesUnread', 0),
-            l.get('threadsTotal', 0)
-        )
-        print(
-            f"{l['name']:<10} "
-            f"msgs={l.get('messagesTotal', 0):>7} "
-            f"unread={l.get('messagesUnread', 0):>7} "
-            f"threads={l.get('threadsTotal', 0):>7}"
-        )
 
     since_dt = datetime.now().astimezone() - timedelta(days=DAYS)
     since_query = f"newer_than:{DAYS}d"
 
-    # ----- Tile 3: daily volume last N days (sampled/complete depending on volume) -----
-    tz_name = get_local_tz_name()
+    # Get timezone offset for logging
     tz_offset = get_local_tz_offset()
-    print_header(f"Daily Volume (last {DAYS} days, {tz_name})")
 
     log.info(
         "[DAILY_VOLUME_RANGE] timezone=%s(UTC%s) start=%s end=%s days=%d query=%r",
@@ -806,7 +787,8 @@ def main(args=None) -> None:
     # --out: Export to dated subfolder with count/size CSVs and summary.json
     if getattr(args, 'out', None):
         from gmail_stats_export import (
-            create_dated_output_dir, export_top_senders_csv, export_summary_json
+            create_dated_output_dir, export_top_senders_csv,
+            export_daily_volume_csv, export_summary_json
         )
 
         log.info("Exporting to dated output directory...")
@@ -838,6 +820,12 @@ def main(args=None) -> None:
             output_dir=output_dir
         )
 
+        # Export daily volume CSV
+        volume_path = export_daily_volume_csv(
+            daily_volume=dict(by_day),
+            output_dir=output_dir
+        )
+
         # Export summary.json
         summary_path = export_summary_json(
             run_metadata=run_metadata,
@@ -863,23 +851,18 @@ def main(args=None) -> None:
         print(f"\nOutput written to: {output_dir}/")
         print(f"  {count_path.name}")
         print(f"  {size_path.name}")
+        print(f"  {volume_path.name}")
         print(f"  {summary_path.name}")
         if getattr(args, 'html', False):
             print(f"  report.html")
 
-    # Print last N days, even if some days are missing
-    d = start_date
-    while d <= end_date:
-        ds = d.isoformat()
-        print(f"{ds}  {by_day.get(ds, 0):>5}")
-        d += timedelta(days=1)
+    # Print analysis summary
+    print(f"\nTotal messages scanned: {len(messages):,}")
+    print(f"Time window: Last {DAYS} days")
 
-    approx_mb = total_size / (1024 * 1024)
-    print(f"\nExamined messages: {len(messages)} (cap={sample_size})")
-    print(f"Approx total size of examined msgs: {approx_mb:.1f} MB")
-
-    # ----- Tile 4: top senders by message count -----
-    print_header(f"Top Senders by Message Count (last {DAYS} days, {tz_name})")
+    # Top senders by message count
+    print("\nTop Senders by Message Count")
+    print("-" * 40)
 
     # Domain-level ranking
     print("\nBy Domain (Top 20):")
@@ -907,8 +890,9 @@ def main(args=None) -> None:
         pct = (stats.message_count / len(messages) * 100) if len(messages) > 0 else 0
         print(f"  {stats.message_count:>5}  {email_addr:<50} ({pct:.1f}%)")
 
-    # ----- Tile 5: top senders by size -----
-    print_header(f"Top Senders by Storage Size (last {DAYS} days, {tz_name})")
+    # Top senders by storage size
+    print("\nTop Senders by Total Size")
+    print("-" * 40)
 
     print("\nBy Domain (Top 20):")
     sorted_domains_size = sorted(
@@ -932,9 +916,10 @@ def main(args=None) -> None:
     top_10_pct = (top_10_size / total_size * 100) if total_size > 0 else 0
     print(f"\nTop 10 domains account for {top_10_pct:.1f}% of examined storage")
 
-    # ----- Tile 6: attachment statistics (if available) -----
+    # Attachment statistics (if available)
     if has_attachment_data:
-        print_header(f"Attachment Statistics (last {DAYS} days, {tz_name})")
+        print("\nAttachment Summary")
+        print("-" * 40)
 
         # Overall attachment summary
         total_with_attachments = sum(s.messages_with_attachments for s in email_stats.values())
@@ -953,20 +938,9 @@ def main(args=None) -> None:
             print(f"  {stats.messages_with_attachments:>5} / {stats.message_count:<5} "
                   f"({attach_pct:>4.1f}%)  {domain}")
     else:
-        print_header("Attachment Statistics")
+        print("\nAttachment Summary")
+        print("-" * 40)
         print("\n[Attachment statistics unavailable - use --random-sample to enable]")
-
-    # ----- Tile 5: quick "unread inbox" -----
-    inbox = next((l for l in labels if l.get("id") == "INBOX" or l.get("name") == "INBOX"), None)
-    if inbox:
-        log.info(
-            "[UNREAD_INBOX] label=INBOX unread=%d total=%d threads=%d",
-            inbox.get('messagesUnread', 0),
-            inbox.get('messagesTotal', 0),
-            inbox.get('threadsTotal', 0)
-        )
-        print_header("Unread")
-        print(f"INBOX unread: {inbox.get('messagesUnread', 0)}")
 
     print("\nDone.")
 

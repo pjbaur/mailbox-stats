@@ -221,8 +221,9 @@ class TestOutArgument:
 
         # Should contain expected files
         files = {f.name for f in output_dir.iterdir()}
-        assert 'top_senders_by_count.csv' in files
-        assert 'top_senders_by_size.csv' in files
+        assert 'senders_by_count.csv' in files
+        assert 'senders_by_size.csv' in files
+        assert 'daily_volume.csv' in files
         assert 'summary.json' in files
 
     def test_out_without_html_no_report(self, mock_gmail_environment, mocker, tmp_path):
@@ -365,4 +366,4 @@ class TestCombinedArguments:
         out_subdirs = list(out_dir.iterdir())
         assert len(out_subdirs) == 1
         out_files = {f.name for f in out_subdirs[0].iterdir()}
-        assert 'top_senders_by_count.csv' in out_files
+        assert 'senders_by_count.csv' in out_files

@@ -102,22 +102,22 @@ class TestExportTopSendersCsv:
         return domain_stats, email_stats
 
     def test_creates_count_csv(self, sample_stats):
-        """Test that top_senders_by_count.csv is created."""
+        """Test that senders_by_count.csv is created."""
         domain_stats, email_stats = sample_stats
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
             count_path, _ = export_top_senders_csv(domain_stats, email_stats, output_dir)
             assert count_path.exists()
-            assert count_path.name == "top_senders_by_count.csv"
+            assert count_path.name == "senders_by_count.csv"
 
     def test_creates_size_csv(self, sample_stats):
-        """Test that top_senders_by_size.csv is created."""
+        """Test that senders_by_size.csv is created."""
         domain_stats, email_stats = sample_stats
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
             _, size_path = export_top_senders_csv(domain_stats, email_stats, output_dir)
             assert size_path.exists()
-            assert size_path.name == "top_senders_by_size.csv"
+            assert size_path.name == "senders_by_size.csv"
 
     def test_count_csv_headers(self, sample_stats):
         """Test CSV headers are correct."""

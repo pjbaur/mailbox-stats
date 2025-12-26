@@ -169,8 +169,8 @@ class TestGenerateHtmlReport:
             # Should not have external stylesheet links
             assert 'rel="stylesheet"' not in content
 
-    def test_html_has_summary_cards(self, sample_data):
-        """Test HTML has summary cards section."""
+    def test_html_has_summary_section(self, sample_data):
+        """Test HTML has summary section with metadata."""
         domain_stats, email_stats, run_metadata = sample_data
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
@@ -179,10 +179,10 @@ class TestGenerateHtmlReport:
             )
 
             content = html_path.read_text(encoding='utf-8')
-            assert "Messages Examined" in content
-            assert "Total Size" in content
-            assert "Unique Domains" in content
-            assert "Unique Senders" in content
+            assert "Total messages:" in content
+            assert "Time window:" in content
+            assert "Account:" in content
+            assert "Generated:" in content
 
     def test_html_has_count_table(self, sample_data):
         """Test HTML has top senders by count table."""
@@ -207,21 +207,7 @@ class TestGenerateHtmlReport:
             )
 
             content = html_path.read_text(encoding='utf-8')
-            assert "Top Senders by Storage Size" in content
-
-    def test_html_has_css_bars(self, sample_data):
-        """Test HTML has CSS bar visualizations."""
-        domain_stats, email_stats, run_metadata = sample_data
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            html_path = generate_html_report(
-                domain_stats, email_stats, run_metadata, output_dir
-            )
-
-            content = html_path.read_text(encoding='utf-8')
-            # Look for bar class and width styles
-            assert 'class="bar"' in content
-            assert 'style="width:' in content
+            assert "Top Senders by Total Size" in content
 
     def test_html_has_footer_metadata(self, sample_data):
         """Test HTML has footer with run metadata."""
@@ -233,10 +219,11 @@ class TestGenerateHtmlReport:
             )
 
             content = html_path.read_text(encoding='utf-8')
-            assert "<footer>" in content
+            # Check for metadata section (using div.summary instead of footer)
             assert "Days Analyzed" in content
             assert "Sample Size" in content
             assert "Sampling Method" in content
+            assert "Total Mailbox Messages" in content
 
     def test_html_shows_correct_counts(self, sample_data):
         """Test HTML displays correct message counts."""
@@ -297,18 +284,6 @@ class TestGenerateHtmlReport:
             content = html_path.read_text(encoding='utf-8')
             assert "<script>" not in content
 
-    def test_html_responsive_meta(self, sample_data):
-        """Test HTML has viewport meta for responsiveness."""
-        domain_stats, email_stats, run_metadata = sample_data
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            html_path = generate_html_report(
-                domain_stats, email_stats, run_metadata, output_dir
-            )
-
-            content = html_path.read_text(encoding='utf-8')
-            assert 'name="viewport"' in content
-
     def test_html_charset_utf8(self, sample_data):
         """Test HTML specifies UTF-8 charset."""
         domain_stats, email_stats, run_metadata = sample_data
@@ -320,20 +295,6 @@ class TestGenerateHtmlReport:
 
             content = html_path.read_text(encoding='utf-8')
             assert 'charset="UTF-8"' in content
-
-    def test_top_10_share_calculation(self, sample_data):
-        """Test that top 10 share percentages are displayed."""
-        domain_stats, email_stats, run_metadata = sample_data
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            html_path = generate_html_report(
-                domain_stats, email_stats, run_metadata, output_dir
-            )
-
-            content = html_path.read_text(encoding='utf-8')
-            # Should show "Top 10 domains account for X% of messages"
-            assert "Top 10 domains account for" in content
-            assert "% of" in content
 
     def test_empty_stats(self):
         """Test handling of empty stats."""

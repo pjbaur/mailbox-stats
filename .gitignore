@@ -39,6 +39,8 @@ Thumbs.db
 gmail_stats.db
 sender_stats_*.csv
 run_metadata_*.csv
+out/
+day5*.md
 
 # Testing
 .coverage

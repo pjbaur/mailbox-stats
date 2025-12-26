@@ -27,11 +27,11 @@ def export_top_senders_csv(
     email_stats: Dict,
     output_dir: Path
 ) -> Tuple[Path, Path]:
-    """Export top senders CSVs split by count and size.
+    """Export senders CSVs split by count and size.
 
     Creates two files:
-    - top_senders_by_count.csv: Sorted by message count
-    - top_senders_by_size.csv: Sorted by total size
+    - senders_by_count.csv: Sorted by message count
+    - senders_by_size.csv: Sorted by total size
 
     Each file includes both domain and email-level rows.
 
@@ -70,7 +70,7 @@ def export_top_senders_csv(
         all_rows.append(('email', email, stats))
 
     # Sort by count and write
-    count_path = output_dir / "top_senders_by_count.csv"
+    count_path = output_dir / "senders_by_count.csv"
     sorted_by_count = sorted(all_rows, key=lambda x: x[2].message_count, reverse=True)
     with open(count_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -79,7 +79,7 @@ def export_top_senders_csv(
             writer.writerow(make_row(level, sender, stats))
 
     # Sort by size and write
-    size_path = output_dir / "top_senders_by_size.csv"
+    size_path = output_dir / "senders_by_size.csv"
     sorted_by_size = sorted(all_rows, key=lambda x: x[2].total_size_bytes, reverse=True)
     with open(size_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -88,6 +88,28 @@ def export_top_senders_csv(
             writer.writerow(make_row(level, sender, stats))
 
     return count_path, size_path
+
+
+def export_daily_volume_csv(
+    daily_volume: Dict[str, int],
+    output_dir: Path
+) -> Path:
+    """Export daily message volume to CSV.
+
+    Args:
+        daily_volume: Dict mapping date strings (YYYY-MM-DD) to message counts
+        output_dir: Output directory path
+
+    Returns:
+        Path to created daily_volume.csv
+    """
+    volume_path = output_dir / 'daily_volume.csv'
+    with open(volume_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['date', 'message_count'])
+        for date in sorted(daily_volume.keys()):
+            writer.writerow([date, daily_volume[date]])
+    return volume_path
 
 
 def export_summary_json(

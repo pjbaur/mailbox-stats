@@ -48,12 +48,10 @@ def test_main_happy_path(mocker, mock_credentials, sample_profile, sample_labels
 
     # Verify key output elements
     assert "test@example.com" in output
-    assert "Total messages: 1000" in output
-    assert "Total threads : 500" in output
-    assert "INBOX" in output
+    assert "Mailbox Stats Report" in output
+    assert "Total messages scanned" in output
     assert "sender1@test.com" in output
     assert "sender2@test.com" in output
-    assert "Daily Volume" in output
     assert "Top Senders" in output
     assert "Done." in output
 
@@ -155,12 +153,9 @@ def test_main_missing_inbox_label(mocker, mock_credentials, sample_profile, samp
         main(Namespace(random_sample=False, sample_size=None))
         output = mock_stdout.getvalue()
 
-    # Should complete without error, but no unread section
+    # Should complete without error (no Key Labels or Unread sections to check)
     assert "test@example.com" in output
-    assert "SENT" in output
     assert "Done." in output
-    # Unread section should not appear (or be empty)
-    assert "INBOX unread:" not in output or output.count("Unread") == 0
 
 
 def test_main_large_mailbox(mocker, mock_credentials, sample_profile, sample_labels):
@@ -204,7 +199,7 @@ def test_main_large_mailbox(mocker, mock_credentials, sample_profile, sample_lab
 
     # Should complete successfully
     assert "test@example.com" in output
-    assert "Total messages: 100000" in output
+    assert "Total messages in mailbox: 100,000" in output
     assert "Done." in output
 
 
