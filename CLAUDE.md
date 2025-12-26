@@ -91,6 +91,8 @@ On first run, the script will:
 
 ## Usage
 
+### Basic Usage
+
 ```bash
 python gmail_stats.py
 ```
@@ -101,6 +103,40 @@ The script will:
 3. Sample recent messages based on `DAYS` and `SAMPLE_MAX_IDS` configuration
 4. Display a dashboard with statistics
 5. Log detailed execution metrics to `gmail_stats.log`
+
+### Command-Line Options
+
+#### Random Sampling
+
+By default, the script uses **chronological sampling** (newest messages first), which stops after collecting `SAMPLE_MAX_IDS` message IDs. This is efficient but may bias results toward recent patterns.
+
+For **unbiased random sampling**, use the `--random-sample` flag:
+
+```bash
+python gmail_stats.py --random-sample
+```
+
+**How it works:**
+- Fetches ALL message IDs matching the time window query (e.g., last 30 days)
+- Randomly samples `SAMPLE_MAX_IDS` messages from the complete set
+- Provides unbiased statistical representation across the time window
+
+**Performance trade-off:**
+- **Chronological**: ~10 API calls for 5,000 messages (stops early)
+- **Random**: ~40 API calls for 20,000 available messages (fetches all before sampling)
+- Both methods fetch the same number of message metadata (e.g., 5,000)
+
+**When to use random sampling:**
+- Statistical analysis requiring unbiased samples
+- Detecting patterns distributed throughout the time window
+- Avoiding recency bias in sender/volume statistics
+
+**When to use chronological (default):**
+- Quick mailbox inspection focused on recent activity
+- Faster execution with fewer API calls
+- Monitoring recent inbox trends
+
+The sampling method used is logged with `[SAMPLING_METHOD]` for auditability.
 
 ### Example Output
 
@@ -239,6 +275,7 @@ To add new statistics or features:
 2. **New dashboard sections**: Add after line 408 (unread section)
 3. **Additional headers**: Extend `metadataHeaders` parameter at line 243
 4. **Different time windows**: Modify query construction at line 350
+5. **Custom sampling strategies**: Reference `list_all_message_ids()` (chronological) and `list_all_message_ids_random()` (random) as templates for new sampling approaches
 
 ### Gmail API Quotas & Limits
 

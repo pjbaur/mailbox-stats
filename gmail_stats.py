@@ -19,9 +19,11 @@ Run:
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import argparse
 import atexit
 import logging
 import os
+import random
 import re
 import time
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -219,6 +221,72 @@ def list_all_message_ids(service, query: str, label_ids: Optional[List[str]], ma
             return ids
 
 
+def list_all_message_ids_random(service, query: str, label_ids: Optional[List[str]], max_ids: int) -> List[str]:
+    """Fetch ALL message IDs matching the query, then randomly sample max_ids.
+
+    Unlike list_all_message_ids() which stops early, this fetches the complete
+    result set first to enable unbiased random sampling.
+
+    Args:
+        service: Gmail API service instance
+        query: Gmail search query string
+        label_ids: Optional list of label IDs to filter by
+        max_ids: Maximum number of IDs to return (0 = return all)
+
+    Returns:
+        List of randomly sampled message IDs (or all IDs if max_ids=0 or fewer IDs than max_ids)
+    """
+    all_ids: List[str] = []
+    page_token = None
+    page = 0
+
+    log.info("Fetching ALL message IDs for random sampling (query=%r)", query)
+
+    while True:
+        page += 1
+        resp = execute_request(
+            service.users().messages().list(
+                userId="me",
+                q=query,
+                labelIds=label_ids,
+                maxResults=500,  # Fetch in chunks of 500
+                pageToken=page_token,
+            ),
+            "users.messages.list",
+        )
+
+        if not resp:
+            break
+
+        messages = resp.get("messages", [])
+        all_ids.extend(m["id"] for m in messages)
+
+        if page % 10 == 0:
+            log.info("Fetched %d message IDs so far (page %d)...", len(all_ids), page)
+
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+
+    log.info("Fetched %d total message IDs", len(all_ids))
+
+    # Handle edge cases
+    if max_ids == 0:
+        # No limit - return all IDs
+        return all_ids
+
+    if len(all_ids) <= max_ids:
+        # Fewer IDs than sample size - return all
+        log.info("Available IDs (%d) <= sample size (%d), using all", len(all_ids), max_ids)
+        return all_ids
+
+    # Perform random sampling
+    log.info("Randomly sampling %d IDs from %d available", max_ids, len(all_ids))
+    sampled_ids = random.sample(all_ids, max_ids)
+
+    return sampled_ids
+
+
 def batch_get_metadata(service, msg_ids: List[str]) -> List[Dict]:
     """Fetch metadata for multiple messages using batch requests with rate limiting.
     
@@ -332,8 +400,24 @@ def print_header(title: str) -> None:
     print("=" * len(title))
 
 
-def main() -> None:
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Gmail Statistics Dashboard - Analyze your Gmail mailbox"
+    )
+    parser.add_argument(
+        '--random-sample',
+        action='store_true',
+        help='Use random sampling instead of chronological (newest first)'
+    )
+    return parser.parse_args()
+
+
+def main(args=None) -> None:
     """Fetch and print the mailbox stats dashboard."""
+    if args is None:
+        args = parse_args()
+
     log.info(f"Configuration: DAYS={DAYS}, SAMPLE_MAX_IDS={SAMPLE_MAX_IDS}, BATCH_SIZE={BATCH_SIZE}")
     log.info(f"Rate limiting: SLEEP_BETWEEN_BATCHES={SLEEP_BETWEEN_BATCHES}s, SLEEP_LONG_DURATION={SLEEP_LONG_DURATION}s every {SLEEP_EVERY_N_BATCHES} batches")
     log.info(f"Retry config: MAX_RETRIES={MAX_RETRIES}, INITIAL_RETRY_DELAY={INITIAL_RETRY_DELAY}s, MAX_RETRY_DELAY={MAX_RETRY_DELAY}s")
@@ -402,9 +486,23 @@ def main() -> None:
         since_query
     )
 
+    # Log sampling method for auditability
+    sampling_method = "random" if args.random_sample else "chronological"
+    log.info(
+        "[SAMPLING_METHOD] method=%s query=%r max_ids=%d days=%d",
+        sampling_method,
+        since_query,
+        SAMPLE_MAX_IDS,
+        DAYS
+    )
+
     log.info("Building sample: query=%r cap=%d", since_query, SAMPLE_MAX_IDS)
     list_start = time.perf_counter()
-    ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=SAMPLE_MAX_IDS)
+    # Build sample using selected sampling strategy
+    if args.random_sample:
+        ids = list_all_message_ids_random(service, since_query, None, SAMPLE_MAX_IDS)
+    else:
+        ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=SAMPLE_MAX_IDS)
     log.info("Message list fetch elapsed=%.2fs", time.perf_counter() - list_start)
     log.info("Collected %d message IDs. Starting metadata fetch...", len(ids))
 
@@ -522,4 +620,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

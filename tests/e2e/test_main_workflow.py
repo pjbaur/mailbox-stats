@@ -5,6 +5,7 @@ including authentication, API calls, data processing, and output generation.
 """
 
 import pytest
+from argparse import Namespace
 from unittest.mock import Mock, patch, MagicMock
 from io import StringIO
 from googleapiclient.errors import HttpError
@@ -42,7 +43,7 @@ def test_main_happy_path(mocker, mock_credentials, sample_profile, sample_labels
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
         output = mock_stdout.getvalue()
 
     # Verify key output elements
@@ -83,7 +84,7 @@ def test_main_no_messages_in_window(mocker, mock_credentials, sample_profile, sa
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
         output = mock_stdout.getvalue()
 
     # Should print basic profile info but then exit early
@@ -103,7 +104,7 @@ def test_main_oauth_failure(mocker):
     # Should raise the exception
     from gmail_stats import main
     with pytest.raises(FileNotFoundError, match="client_secret.json"):
-        main()
+        main(Namespace(random_sample=False))
 
 
 def test_main_missing_inbox_label(mocker, mock_credentials, sample_profile, sample_messages):
@@ -151,7 +152,7 @@ def test_main_missing_inbox_label(mocker, mock_credentials, sample_profile, samp
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
         output = mock_stdout.getvalue()
 
     # Should complete without error, but no unread section
@@ -198,7 +199,7 @@ def test_main_large_mailbox(mocker, mock_credentials, sample_profile, sample_lab
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
         output = mock_stdout.getvalue()
 
     # Should complete successfully
@@ -256,7 +257,7 @@ def test_main_message_missing_headers(mocker, mock_credentials, sample_profile, 
     # Should handle gracefully without crashing
     with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
         output = mock_stdout.getvalue()
 
     # Should complete successfully
@@ -308,7 +309,7 @@ def test_main_top_senders_limit(mocker, mock_credentials, sample_profile, sample
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
         output = mock_stdout.getvalue()
 
     # Should only show top 25 senders
@@ -351,7 +352,7 @@ def test_main_logging_output(mocker, mock_credentials, sample_profile, sample_la
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO):
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
 
     # Verify configuration was logged
     log_text = caplog.text
@@ -393,7 +394,7 @@ def test_main_configuration_used(mocker, mock_credentials, sample_profile, sampl
     # Capture stdout
     with patch("sys.stdout", new_callable=StringIO):
         from gmail_stats import main
-        main()
+        main(Namespace(random_sample=False))
 
     # Verify list_all_message_ids was called
     # (we can't easily verify the query parameter in this setup,
@@ -425,4 +426,4 @@ def test_main_api_error_propagation(mocker, mock_credentials):
     # Should raise the HttpError
     from gmail_stats import main
     with pytest.raises(HttpError):
-        main()
+        main(Namespace(random_sample=False))
