@@ -499,6 +499,25 @@ def parse_args():
         metavar='DIR',
         help='Directory for CSV exports (default: current directory)'
     )
+    parser.add_argument(
+        '--out',
+        type=str,
+        metavar='DIR',
+        help='Output directory for all artifacts (CSVs, JSON, HTML). Creates dated subfolder automatically.'
+    )
+    parser.add_argument(
+        '--html',
+        action='store_true',
+        help='Generate an HTML report (report.html) in the output directory'
+    )
+    parser.add_argument(
+        '--serve',
+        nargs='?',
+        const=8000,
+        type=int,
+        metavar='PORT',
+        help='Start web server after analysis (default port: 8000)'
+    )
     return parser.parse_args()
 
 
@@ -506,6 +525,9 @@ def main(args=None) -> None:
     """Fetch and print the mailbox stats dashboard."""
     if args is None:
         args = parse_args()
+
+    # Track run timing for summary.json
+    run_started = datetime.now(timezone.utc).isoformat()
 
     # Determine effective sample size: CLI arg takes precedence over env var
     sample_size = args.sample_size if args.sample_size is not None else SAMPLE_MAX_IDS
@@ -781,6 +803,70 @@ def main(args=None) -> None:
         print(f"  Email stats:  {email_path}")
         print(f"  Run metadata: {metadata_path}")
 
+    # --out: Export to dated subfolder with count/size CSVs and summary.json
+    if getattr(args, 'out', None):
+        from gmail_stats_export import (
+            create_dated_output_dir, export_top_senders_csv, export_summary_json
+        )
+
+        log.info("Exporting to dated output directory...")
+        export_start = time.perf_counter()
+
+        # Create dated subfolder
+        output_dir = create_dated_output_dir(args.out)
+
+        # Track run_finished time
+        run_finished = datetime.now(timezone.utc).isoformat()
+
+        # Build run metadata for summary.json
+        run_metadata = {
+            'account_email': email,
+            'run_started': run_started,
+            'run_finished': run_finished,
+            'days_analyzed': DAYS,
+            'sample_size': sample_size,
+            'sampling_method': sampling_method,
+            'messages_examined': len(messages),
+            'total_mailbox_messages': total_msgs,
+            'total_bytes': total_size
+        }
+
+        # Export count/size CSVs
+        count_path, size_path = export_top_senders_csv(
+            domain_stats=dict(domain_stats),
+            email_stats=dict(email_stats),
+            output_dir=output_dir
+        )
+
+        # Export summary.json
+        summary_path = export_summary_json(
+            run_metadata=run_metadata,
+            domain_stats=dict(domain_stats),
+            email_stats=dict(email_stats),
+            output_dir=output_dir
+        )
+
+        # Generate HTML report if requested
+        if getattr(args, 'html', False):
+            from gmail_stats_html import generate_html_report
+
+            html_path = generate_html_report(
+                domain_stats=dict(domain_stats),
+                email_stats=dict(email_stats),
+                run_metadata=run_metadata,
+                output_dir=output_dir
+            )
+            log.info(f"HTML report generated: {html_path}")
+
+        export_elapsed = time.perf_counter() - export_start
+        log.info(f"Dated export complete: elapsed={export_elapsed:.2f}s dir={output_dir}")
+        print(f"\nOutput written to: {output_dir}/")
+        print(f"  {count_path.name}")
+        print(f"  {size_path.name}")
+        print(f"  {summary_path.name}")
+        if getattr(args, 'html', False):
+            print(f"  report.html")
+
     # Print last N days, even if some days are missing
     d = start_date
     while d <= end_date:
@@ -841,9 +927,19 @@ def main(args=None) -> None:
         else:
             print(f"  {size_mb:>6.1f} MB  {domain:<40} ({pct:.1f}% of examined)")
 
+    # Top 10 share of total size
+    top_10_size = sum(stats.total_size_bytes for _, stats in sorted_domains_size[:10])
+    top_10_pct = (top_10_size / total_size * 100) if total_size > 0 else 0
+    print(f"\nTop 10 domains account for {top_10_pct:.1f}% of examined storage")
+
     # ----- Tile 6: attachment statistics (if available) -----
     if has_attachment_data:
         print_header(f"Attachment Statistics (last {DAYS} days, {tz_name})")
+
+        # Overall attachment summary
+        total_with_attachments = sum(s.messages_with_attachments for s in email_stats.values())
+        overall_attach_pct = (total_with_attachments / len(messages) * 100) if len(messages) > 0 else 0
+        print(f"\nAttachments: {overall_attach_pct:.1f}% of messages ({total_with_attachments:,} of {len(messages):,})")
 
         print("\nBy Domain (Top 20 by attachment count):")
         sorted_attach = sorted(
@@ -872,7 +968,18 @@ def main(args=None) -> None:
         print_header("Unread")
         print(f"INBOX unread: {inbox.get('messagesUnread', 0)}")
 
-    print("\nDone. ✅")
+    print("\nDone.")
+
+    # Start web server if requested
+    if getattr(args, 'serve', None):
+        port = args.serve
+        print(f"\nStarting web server at http://127.0.0.1:{port}")
+        print("Press Ctrl+C to stop...")
+
+        import uvicorn
+        from gmail_stats_server import app
+
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -185,3 +185,184 @@ def test_integration_random_vs_chronological_sampling(mock_gmail_environment, mo
 
     # Both runs should complete successfully (no exceptions raised)
     # This verifies both code paths are functional
+
+
+# =============================================================================
+# Day 5 Feature Tests: --out, --html, --serve CLI arguments
+# =============================================================================
+
+class TestOutArgument:
+    """Tests for --out argument (Day 5 feature)."""
+
+    def test_out_argument_parsed(self):
+        """Test that --out argument is correctly parsed."""
+        from gmail_stats import parse_args
+        with patch('sys.argv', ['gmail_stats.py', '--out', './output']):
+            args = parse_args()
+            assert args.out == './output'
+
+    def test_out_argument_creates_output(self, mock_gmail_environment, mocker, tmp_path):
+        """Test that --out creates dated output directory with files."""
+        args = Namespace(
+            random_sample=True,
+            sample_size=None,
+            export_csv=False,
+            out=str(tmp_path),
+            html=False,
+            serve=None
+        )
+
+        main(args)
+
+        # Should have created a dated subdirectory
+        subdirs = list(tmp_path.iterdir())
+        assert len(subdirs) == 1
+        output_dir = subdirs[0]
+
+        # Should contain expected files
+        files = {f.name for f in output_dir.iterdir()}
+        assert 'top_senders_by_count.csv' in files
+        assert 'top_senders_by_size.csv' in files
+        assert 'summary.json' in files
+
+    def test_out_without_html_no_report(self, mock_gmail_environment, mocker, tmp_path):
+        """Test that --out without --html doesn't create report.html."""
+        args = Namespace(
+            random_sample=True,
+            sample_size=None,
+            export_csv=False,
+            out=str(tmp_path),
+            html=False,
+            serve=None
+        )
+
+        main(args)
+
+        subdirs = list(tmp_path.iterdir())
+        output_dir = subdirs[0]
+        files = {f.name for f in output_dir.iterdir()}
+        assert 'report.html' not in files
+
+
+class TestHtmlArgument:
+    """Tests for --html argument (Day 5 feature)."""
+
+    def test_html_argument_parsed(self):
+        """Test that --html argument is correctly parsed."""
+        from gmail_stats import parse_args
+        with patch('sys.argv', ['gmail_stats.py', '--html']):
+            args = parse_args()
+            assert args.html is True
+
+    def test_html_requires_out(self, mock_gmail_environment, mocker, tmp_path):
+        """Test that --html with --out creates report.html."""
+        args = Namespace(
+            random_sample=True,
+            sample_size=None,
+            export_csv=False,
+            out=str(tmp_path),
+            html=True,
+            serve=None
+        )
+
+        main(args)
+
+        subdirs = list(tmp_path.iterdir())
+        output_dir = subdirs[0]
+        files = {f.name for f in output_dir.iterdir()}
+        assert 'report.html' in files
+
+    def test_html_report_is_valid(self, mock_gmail_environment, mocker, tmp_path):
+        """Test that generated HTML is valid."""
+        args = Namespace(
+            random_sample=True,
+            sample_size=None,
+            export_csv=False,
+            out=str(tmp_path),
+            html=True,
+            serve=None
+        )
+
+        main(args)
+
+        subdirs = list(tmp_path.iterdir())
+        output_dir = subdirs[0]
+        html_path = output_dir / 'report.html'
+
+        content = html_path.read_text()
+        assert '<!DOCTYPE html>' in content
+        assert '</html>' in content
+
+
+class TestServeArgument:
+    """Tests for --serve argument (Day 5 feature)."""
+
+    def test_serve_argument_parsed_default_port(self):
+        """Test that --serve defaults to port 8000."""
+        from gmail_stats import parse_args
+        with patch('sys.argv', ['gmail_stats.py', '--serve']):
+            args = parse_args()
+            assert args.serve == 8000
+
+    def test_serve_argument_custom_port(self):
+        """Test that --serve accepts custom port."""
+        from gmail_stats import parse_args
+        with patch('sys.argv', ['gmail_stats.py', '--serve', '3000']):
+            args = parse_args()
+            assert args.serve == 3000
+
+    def test_serve_not_specified(self):
+        """Test that --serve is None when not specified."""
+        from gmail_stats import parse_args
+        with patch('sys.argv', ['gmail_stats.py']):
+            args = parse_args()
+            assert args.serve is None
+
+
+class TestCombinedArguments:
+    """Tests for combining Day 5 arguments."""
+
+    def test_all_day5_args_together(self):
+        """Test that all Day 5 args can be used together."""
+        from gmail_stats import parse_args
+        with patch('sys.argv', [
+            'gmail_stats.py',
+            '--random-sample',
+            '--out', './out',
+            '--html',
+            '--serve', '8080'
+        ]):
+            args = parse_args()
+            assert args.random_sample is True
+            assert args.out == './out'
+            assert args.html is True
+            assert args.serve == 8080
+
+    def test_out_and_export_csv_independent(self, mock_gmail_environment, mocker, tmp_path):
+        """Test that --out and --export-csv can be used independently."""
+        export_dir = tmp_path / 'exports'
+        export_dir.mkdir()
+        out_dir = tmp_path / 'out'
+        out_dir.mkdir()
+
+        args = Namespace(
+            random_sample=True,
+            sample_size=None,
+            export_csv=True,
+            export_dir=str(export_dir),
+            out=str(out_dir),
+            html=False,
+            serve=None
+        )
+
+        main(args)
+
+        # --export-csv creates timestamped files in export_dir
+        export_files = list(export_dir.iterdir())
+        assert any('sender_stats_domain' in f.name for f in export_files)
+
+        # --out creates dated subfolder in out_dir
+        out_subdirs = list(out_dir.iterdir())
+        assert len(out_subdirs) == 1
+        out_files = {f.name for f in out_subdirs[0].iterdir()}
+        assert 'top_senders_by_count.csv' in out_files

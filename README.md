@@ -1,36 +1,46 @@
-# Mailbox Stats (Gmail Cloud Run App)
+# Mailbox Stats (Gmail Statistics Dashboard)
 
-A serverless Flask app for exploring Gmail data via the Gmail API. It supports
-OAuth for local development and service account domain-wide delegation for Cloud Run.
+A command-line tool that analyzes Gmail mailbox data to provide insights and help identify cleanup opportunities. Features include top sender analysis, storage usage tracking, attachment statistics, and multiple output formats (console, CSV, JSON, HTML, web UI).
 
 ## Architecture
 
-- **Platform**: Google Cloud Run (serverless, pay-per-use)
-- **Language**: Python 3.11
-- **Framework**: Flask
-- **Authentication**: OAuth (local) or Service Account (Cloud Run, domain-wide delegation)
-- **API**: Gmail API
+- **Platform**: Local CLI / Optional Cloud Run deployment
+- **Language**: Python 3.12
+- **CLI Framework**: argparse
+- **Web Framework**: FastAPI (optional `--serve` mode)
+- **Authentication**: OAuth (local) or Service Account (Cloud Run)
+- **API**: Gmail API (read-only scope)
+- **Database**: SQLite (for historical tracking)
 
 ## Prerequisites
 
 - Google Cloud account
-- Google Workspace account (required for domain-wide delegation)
+- Google Workspace account (required for domain-wide delegation in Cloud Run)
 - `gcloud` CLI installed and authenticated
-- Python 3.11+
+- Python 3.12+
 
 ## Project Structure
 
 ```
-gmail-cloud-run/
-├── main.py                 # Flask application + Gmail API integration
+mailbox-stats/
+├── gmail_stats.py          # Main CLI tool with core functionality
+├── gmail_stats_db.py       # SQLite persistence layer
+├── gmail_stats_export.py   # CSV/JSON export functionality
+├── gmail_stats_html.py     # Static HTML report generator
+├── gmail_stats_server.py   # FastAPI web server (--serve mode)
+├── gmail_pull.py           # Quick API connectivity test
+├── main.py                 # Flask app (legacy Cloud Run)
 ├── requirements.txt        # Python dependencies
-├── Dockerfile             # Container configuration
-├── .dockerignore          # Docker ignore rules
-├── .gitignore            # Git ignore rules
-├── credentials.json       # OAuth credentials (for local testing, gitignored)
-├── service-account.json   # Service account key (for Cloud Run, gitignored)
-├── DEPLOYMENT.md          # Quick deployment guide
-└── README.md             # This file
+├── pytest.ini              # Test configuration
+├── client_secret.json      # OAuth credentials (gitignored)
+├── token.json              # Cached OAuth token (gitignored)
+├── gmail_stats.db          # SQLite database (gitignored)
+├── .env                    # Environment configuration (gitignored)
+├── out/                    # Output directory for --out exports
+│   └── YYYY-MM-DD_HHMM/    # Dated subfolders
+├── tests/                  # Test suite (250 tests)
+├── CLAUDE.md               # Detailed CLI documentation
+└── README.md               # This file
 ```
 
 ## Setup Instructions
@@ -164,7 +174,7 @@ gcloud run services describe gmail-app --region us-central1 --format 'value(stat
 
 ### Automated Test Suite
 
-The project includes a comprehensive test suite with 81 tests covering unit, integration, and end-to-end scenarios. Test coverage: **96%**.
+The project includes a comprehensive test suite with **250 tests** covering unit, integration, and end-to-end scenarios. Test coverage: **93%**.
 
 #### Running Tests
 
@@ -199,16 +209,25 @@ tests/
 │   ├── test_date_conversion.py
 │   ├── test_chunked.py
 │   ├── test_print_header.py
-│   └── test_request_tracking.py
+│   ├── test_request_tracking.py
+│   ├── test_random_sampling.py
+│   ├── test_export.py       # CSV/JSON export tests
+│   └── test_html_report.py  # HTML report generator tests
 ├── integration/             # Integration tests (with mocks)
 │   ├── test_execute_request.py
 │   ├── test_get_creds.py
 │   ├── test_list_all_message_ids.py
 │   ├── test_batch_get_metadata.py
-│   └── test_label_counts.py
+│   ├── test_label_counts.py
+│   ├── test_cli_args.py     # CLI argument tests
+│   └── test_server.py       # FastAPI endpoint tests
 ├── e2e/                     # End-to-end workflow tests
 │   └── test_main_workflow.py
-└── conftest.py             # Shared fixtures
+├── edge_cases/              # Edge case handling
+├── performance/             # Performance tests
+├── reliability/             # Reliability tests
+├── security/                # Security tests
+└── conftest.py              # Shared fixtures
 ```
 
 #### Test Dependencies
@@ -238,14 +257,78 @@ curl http://localhost:8080/
 curl http://localhost:8080/gmail-test
 ```
 
+## CLI Usage
+
+The main tool is `gmail_stats.py`, a command-line interface for analyzing Gmail data.
+
+### Basic Usage
+
+```bash
+# Default analysis (chronological sampling)
+python gmail_stats.py
+
+# Random sampling with full metadata (recommended for accurate stats)
+python gmail_stats.py --random-sample
+
+# Custom sample size
+python gmail_stats.py --random-sample --sample-size 2500
+```
+
+### Output Options
+
+```bash
+# Export to dated folder with CSVs and JSON summary
+python gmail_stats.py --random-sample --out ./out
+
+# Add HTML report
+python gmail_stats.py --random-sample --out ./out --html
+
+# Start interactive web dashboard after analysis
+python gmail_stats.py --random-sample --serve
+
+# Specify custom port for web server
+python gmail_stats.py --random-sample --serve 3000
+```
+
+### Output Files (with --out)
+
+```
+out/2025-12-26_1430/
+├── top_senders_by_count.csv   # All senders sorted by message count
+├── top_senders_by_size.csv    # All senders sorted by storage size
+├── summary.json               # Run metadata and aggregate stats
+└── report.html                # Static HTML dashboard (with --html)
+```
+
+### Web Server (with --serve)
+
+The `--serve` flag starts a FastAPI server with an interactive dashboard:
+
+- `GET /` - Interactive dashboard
+- `GET /api/summary` - Run metadata and totals
+- `GET /api/top?metric=count|size&level=domain|email&limit=50` - Top senders
+- `GET /api/runs` - Historical analysis runs
+
+Or run the server standalone (uses existing database):
+
+```bash
+python gmail_stats_server.py --port 8000
+```
+
+### Legacy CSV Export
+
+```bash
+# Original export format (timestamped files)
+python gmail_stats.py --random-sample --export-csv --export-dir ./reports
+```
+
 ### Utility Scripts
 ```bash
 # Quick inspection and validation of API connectivity
 python gmail_pull.py
-
-# Practice getting mailbox stats
-python gmail_stats.py
 ```
+
+For detailed documentation, see `CLAUDE.md`.
 
 ### Cloud Run Testing
 ```bash

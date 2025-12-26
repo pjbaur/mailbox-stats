@@ -29,6 +29,8 @@ This tool is designed as a practical inspection utility rather than a reusable l
   - `google-auth-oauthlib`: OAuth2 authentication flow
   - `google-auth`: Credential management
   - `python-dotenv`: Environment variable management
+  - `fastapi`: Web API framework (for `--serve` option)
+  - `uvicorn`: ASGI server for FastAPI
 
 ## Project Structure
 
@@ -36,15 +38,22 @@ This tool is designed as a practical inspection utility rather than a reusable l
 .
 ├── gmail_stats.py          # Main script with core functionality
 ├── gmail_stats_db.py       # SQLite persistence layer
-├── gmail_stats_export.py   # CSV export functionality
+├── gmail_stats_export.py   # CSV/JSON export functionality
+├── gmail_stats_html.py     # Static HTML report generator
+├── gmail_stats_server.py   # FastAPI web server
+├── requirements.txt        # Python dependencies
 ├── client_secret.json      # OAuth2 credentials (user-provided, gitignored)
 ├── token.json             # Cached OAuth token (auto-generated, gitignored)
 ├── gmail_stats.db         # SQLite database (auto-generated, gitignored)
 ├── .env                   # Environment configuration (user-provided, gitignored)
 ├── .env.example           # Template for environment variables
 ├── gmail_stats.log        # Execution logs (auto-generated)
-├── sender_stats_*.csv     # CSV exports (optional, gitignored)
-├── run_metadata_*.csv     # Run metadata exports (optional, gitignored)
+├── out/                   # Output directory for --out exports (gitignored)
+│   └── YYYY-MM-DD_HHMM/   # Dated subfolders
+│       ├── top_senders_by_count.csv
+│       ├── top_senders_by_size.csv
+│       ├── summary.json
+│       └── report.html    # If --html is used
 └── CLAUDE.md             # This file
 ```
 
@@ -222,6 +231,92 @@ CSV exports written:
   Email stats:  ./reports/sender_stats_email_20251225_143022.csv
   Run metadata: ./reports/run_metadata_20251225_143022.csv
 ```
+
+#### Output Directory (--out)
+
+Use `--out` for organized output with dated subfolders:
+
+```bash
+# Create dated output folder with all artifacts
+python gmail_stats.py --random-sample --out ./out
+```
+
+This creates a timestamped subfolder with:
+- `top_senders_by_count.csv`: All senders (domain + email) sorted by message count
+- `top_senders_by_size.csv`: All senders sorted by storage size
+- `summary.json`: Run metadata and aggregate statistics
+
+**Example output**:
+```
+Output written to: ./out/2025-12-26_1430/
+  top_senders_by_count.csv
+  top_senders_by_size.csv
+  summary.json
+```
+
+**summary.json structure**:
+```json
+{
+  "account_email": "user@example.com",
+  "run_started": "2025-12-26T14:30:00Z",
+  "run_finished": "2025-12-26T14:32:15Z",
+  "filters": {
+    "days_analyzed": 30,
+    "sample_size": 5000,
+    "sampling_method": "random"
+  },
+  "totals": {
+    "messages_examined": 5000,
+    "total_mailbox_messages": 45231,
+    "total_bytes": 359137280,
+    "total_mb": 342.5
+  },
+  "unique_senders": {
+    "domains": 234,
+    "emails": 891
+  }
+}
+```
+
+#### HTML Report (--html)
+
+Generate a static HTML dashboard (requires `--out`):
+
+```bash
+python gmail_stats.py --random-sample --out ./out --html
+```
+
+Creates `report.html` in the output folder with:
+- Summary cards (messages, size, unique senders)
+- Top senders by count table with visual bars
+- Top senders by size table with visual bars
+- Run metadata footer
+
+The HTML is self-contained (inline CSS, no external dependencies) and opens in any browser.
+
+#### Web Server (--serve)
+
+Start an interactive web dashboard after analysis:
+
+```bash
+# Run analysis and start server on default port 8000
+python gmail_stats.py --random-sample --serve
+
+# Specify a custom port
+python gmail_stats.py --random-sample --serve 3000
+```
+
+Or run the server standalone (uses existing `gmail_stats.db`):
+
+```bash
+python gmail_stats_server.py --port 8000
+```
+
+**API Endpoints**:
+- `GET /` - Interactive dashboard
+- `GET /api/summary` - Run metadata and totals
+- `GET /api/top?metric=count|size&level=domain|email&limit=50` - Top senders
+- `GET /api/runs?limit=10` - Recent analysis runs
 
 ### Example Output
 

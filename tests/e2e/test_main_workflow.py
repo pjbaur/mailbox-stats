@@ -55,7 +55,7 @@ def test_main_happy_path(mocker, mock_credentials, sample_profile, sample_labels
     assert "sender2@test.com" in output
     assert "Daily Volume" in output
     assert "Top Senders" in output
-    assert "Done. ✅" in output
+    assert "Done." in output
 
 
 def test_main_no_messages_in_window(mocker, mock_credentials, sample_profile, sample_labels):
@@ -158,7 +158,7 @@ def test_main_missing_inbox_label(mocker, mock_credentials, sample_profile, samp
     # Should complete without error, but no unread section
     assert "test@example.com" in output
     assert "SENT" in output
-    assert "Done. ✅" in output
+    assert "Done." in output
     # Unread section should not appear (or be empty)
     assert "INBOX unread:" not in output or output.count("Unread") == 0
 
@@ -205,7 +205,7 @@ def test_main_large_mailbox(mocker, mock_credentials, sample_profile, sample_lab
     # Should complete successfully
     assert "test@example.com" in output
     assert "Total messages: 100000" in output
-    assert "Done. ✅" in output
+    assert "Done." in output
 
 
 def test_main_message_missing_headers(mocker, mock_credentials, sample_profile, sample_labels):
@@ -262,7 +262,7 @@ def test_main_message_missing_headers(mocker, mock_credentials, sample_profile, 
 
     # Should complete successfully
     assert "test@example.com" in output
-    assert "Done. ✅" in output
+    assert "Done." in output
     # Should show (unknown) for senders with missing From headers
     assert "(unknown)" in output
 
@@ -320,7 +320,7 @@ def test_main_top_senders_limit(mocker, mock_credentials, sample_profile, sample
     assert len(sender_lines) <= 25, f"Expected at most 25 senders, found {len(sender_lines)}"
 
     # Should still complete successfully
-    assert "Done. ✅" in output
+    assert "Done." in output
 
 
 def test_main_logging_output(mocker, mock_credentials, sample_profile, sample_labels, caplog):
