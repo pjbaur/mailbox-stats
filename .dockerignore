@@ -1,3 +1,10 @@
+token.json
+token.pickle
+credentials.json
+gmail_stats.db
+gmail_stats.log
+out/
+htmlcov/
 __pycache__
 *.pyc
 *.pyo

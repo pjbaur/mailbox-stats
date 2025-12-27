@@ -502,8 +502,9 @@ def parse_args():
     parser.add_argument(
         '--out',
         type=str,
+        default='out',
         metavar='DIR',
-        help='Output directory for all artifacts (CSVs, JSON, HTML). Creates dated subfolder automatically.'
+        help='Output directory for all artifacts (CSVs, JSON, HTML). Creates dated subfolder automatically (default: out/).'
     )
     parser.add_argument(
         '--html',
@@ -956,6 +957,9 @@ def main(args=None) -> None:
         uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
-if __name__ == "__main__":
+def run():
     args = parse_args()
-    main(args)
+    return main(args)
+
+if __name__ == "__main__":
+    raise SystemExit(run())
