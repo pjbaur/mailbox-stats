@@ -1,12 +1,14 @@
 """SQLite persistence for gmail_stats historical tracking."""
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
 
-DB_PATH = Path("gmail_stats.db")
+# DB path configurable via environment variable for deployment flexibility
+DB_PATH = Path(os.getenv("DB_PATH", "gmail_stats.db"))
 
 
 def init_db(db_path: Path = DB_PATH) -> None:

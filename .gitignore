@@ -1,4 +1,6 @@
 project-for-llm.txt
+log-errors.txt
+mailbox-stats.log.json
 
 # Python
 venv/
@@ -47,3 +49,6 @@ day5*.md
 htmlcov/
 .pytest_cache/
 .trees/
+
+# Deployment (contains project-specific details)
+DEPLOYMENT_GUIDE.md

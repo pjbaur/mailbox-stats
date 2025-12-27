@@ -56,6 +56,10 @@ SLEEP_BETWEEN_BATCHES = float(os.getenv("SLEEP_BETWEEN_BATCHES", "0.5"))
 SLEEP_EVERY_N_BATCHES = int(os.getenv("SLEEP_EVERY_N_BATCHES", "10"))
 SLEEP_LONG_DURATION = float(os.getenv("SLEEP_LONG_DURATION", "2.0"))
 
+# Credential paths (configurable for Cloud Run deployment)
+TOKEN_PATH = os.getenv("TOKEN_PATH", "token.json")
+CLIENT_SECRET_PATH = os.getenv("CLIENT_SECRET_PATH", "client_secret.json")
+
 # Configure logging to use UTC timestamps
 logging.Formatter.converter = time.gmtime
 
@@ -116,7 +120,12 @@ atexit.register(log_request_totals)
 
 
 def get_creds() -> Credentials:
-    """Load cached credentials or run the OAuth flow to create them.
+    """Load credentials from environment, file, or OAuth flow.
+
+    Priority:
+    1. TOKEN_JSON env var (JSON string from Secret Manager)
+    2. TOKEN_PATH file (default: token.json)
+    3. OAuth flow (local development only - fails in Cloud Run)
 
     Returns:
         Credentials: Authorized Gmail API credentials with read-only scope.
@@ -124,28 +133,58 @@ def get_creds() -> Credentials:
     t0 = time.perf_counter()
     source = "unknown"
     creds: Optional[Credentials] = None
+
+    # Priority 1: Load from TOKEN_JSON env var (Secret Manager in Cloud Run)
+    token_json_str = os.getenv("TOKEN_JSON")
+    if token_json_str:
+        try:
+            token_data = json.loads(token_json_str)
+            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+            source = "env:TOKEN_JSON"
+            if creds and creds.valid:
+                log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
+                return creds
+            # Try refresh if expired
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                source = "env:TOKEN_JSON+refresh"
+                log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
+                return creds
+        except (json.JSONDecodeError, ValueError) as e:
+            log.warning("Failed to parse TOKEN_JSON env var: %s", e)
+
+    # Priority 2: Load from TOKEN_PATH file
     try:
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        source = f"file:{TOKEN_PATH}"
     except Exception:
         creds = None
 
     if creds and creds.valid:
-        source = "cache"
         log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
         return creds
 
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        with open("token.json", "w", encoding="utf-8") as f:
-            f.write(creds.to_json())
-        source = "refresh"
+        # Only write back if using file-based token (not env var)
+        if not token_json_str:
+            with open(TOKEN_PATH, "w", encoding="utf-8") as f:
+                f.write(creds.to_json())
+        source = f"file:{TOKEN_PATH}+refresh"
         log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
         return creds
 
-    # First-time auth: open a local server to complete OAuth and cache token.json.
-    flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
+    # Priority 3: OAuth flow (only works locally, not in Cloud Run)
+    # Detect Cloud Run environment and fail early with helpful message
+    if os.getenv("CLOUD_RUN_JOB") or os.getenv("K_SERVICE"):
+        raise RuntimeError(
+            "No valid credentials found and OAuth flow is not available in Cloud Run. "
+            "Set TOKEN_JSON env var from Secret Manager with a valid refresh token."
+        )
+
+    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_PATH, SCOPES)
     creds = flow.run_local_server(port=0)
-    with open("token.json", "w", encoding="utf-8") as f:
+    with open(TOKEN_PATH, "w", encoding="utf-8") as f:
         f.write(creds.to_json())
     source = "oauth_flow"
     log.info("OAuth token acquisition: source=%s elapsed=%.2fs", source, time.perf_counter() - t0)
@@ -471,46 +510,75 @@ def print_header(title: str) -> None:
     print("=" * len(title))
 
 
+def _env_bool(name: str, default: str = "") -> bool:
+    """Check if an environment variable is truthy."""
+    return os.getenv(name, default).lower() in ("1", "true", "yes", "y")
+
+
 def parse_args():
-    """Parse command-line arguments."""
+    """Parse command-line arguments.
+
+    Supports configuration via environment variables for Cloud Run deployment.
+    CLI flags override environment variables when both are set.
+    """
     parser = argparse.ArgumentParser(
         description="Gmail Statistics Dashboard - Analyze your Gmail mailbox"
     )
+
+    # Run mode (new for Cloud Run - default behavior when no args)
+    parser.add_argument(
+        '--mode',
+        choices=['full', 'sample'],
+        default=os.getenv('MODE', 'full'),
+        help='Run mode: full (chronological) or sample (random). Default: full (or env MODE).'
+    )
+
+    # Legacy flag - maps to --mode sample for backward compatibility
     parser.add_argument(
         '--random-sample',
         action='store_true',
-        help='Use random sampling instead of chronological (newest first)'
+        default=_env_bool('RANDOM_SAMPLE'),
+        help='Use random sampling (equivalent to --mode sample). Env: RANDOM_SAMPLE'
     )
+
     parser.add_argument(
         '--sample-size',
         type=int,
         metavar='N',
-        help='Number of messages to sample (default: SAMPLE_MAX_IDS from .env, typically 5000). Use 0 for unlimited.'
+        default=int(os.getenv('SAMPLE_SIZE', '0')) or None,
+        help='Number of messages to sample (default: SAMPLE_MAX_IDS from .env). Use 0 for unlimited. Env: SAMPLE_SIZE'
     )
+
     parser.add_argument(
         '--export-csv',
         action='store_true',
-        help='Export statistics to CSV files (3 files: domain stats, email stats, run metadata)'
+        default=_env_bool('EXPORT_CSV'),
+        help='Export statistics to CSV files. Env: EXPORT_CSV'
     )
+
     parser.add_argument(
         '--export-dir',
         type=str,
-        default='.',
+        default=os.getenv('EXPORT_DIR', '.'),
         metavar='DIR',
-        help='Directory for CSV exports (default: current directory)'
+        help='Directory for CSV exports (default: current directory). Env: EXPORT_DIR'
     )
+
     parser.add_argument(
         '--out',
         type=str,
-        default='out',
+        default=os.getenv('OUTPUT_DIR', None),
         metavar='DIR',
-        help='Output directory for all artifacts (CSVs, JSON, HTML). Creates dated subfolder automatically (default: out/).'
+        help='Output directory for all artifacts. Creates dated subfolder. Env: OUTPUT_DIR'
     )
+
     parser.add_argument(
         '--html',
         action='store_true',
-        help='Generate an HTML report (report.html) in the output directory'
+        default=_env_bool('HTML_REPORT'),
+        help='Generate an HTML report (report.html). Env: HTML_REPORT'
     )
+
     parser.add_argument(
         '--serve',
         nargs='?',
@@ -519,7 +587,30 @@ def parse_args():
         metavar='PORT',
         help='Start web server after analysis (default port: 8000)'
     )
-    return parser.parse_args()
+
+    # Cloud Run specific options
+    parser.add_argument(
+        '--gcs-bucket',
+        type=str,
+        default=os.getenv('GCS_BUCKET', None),
+        metavar='URI',
+        help='GCS bucket URI for output upload (e.g., gs://bucket/path). Env: GCS_BUCKET'
+    )
+
+    parser.add_argument(
+        '--skip-db',
+        action='store_true',
+        default=_env_bool('SKIP_DB'),
+        help='Skip SQLite database persistence (for cloud runs). Env: SKIP_DB'
+    )
+
+    args = parser.parse_args()
+
+    # Backward compatibility: --random-sample implies --mode sample
+    if args.random_sample and args.mode == 'full':
+        args.mode = 'sample'
+
+    return args
 
 
 def main(args=None) -> None:
@@ -584,8 +675,8 @@ def main(args=None) -> None:
         since_query
     )
 
-    # Log sampling method for auditability
-    sampling_method = "random" if args.random_sample else "chronological"
+    # Log sampling method for auditability (uses args.mode after backward compat mapping)
+    sampling_method = "random" if args.mode == 'sample' else "chronological"
     log.info(
         "[SAMPLING_METHOD] method=%s query=%r max_ids=%d days=%d",
         sampling_method,
@@ -597,7 +688,8 @@ def main(args=None) -> None:
     log.info("Building sample: query=%r cap=%d", since_query, sample_size)
     list_start = time.perf_counter()
     # Build sample using selected sampling strategy
-    if args.random_sample:
+    use_random = args.mode == 'sample'
+    if use_random:
         ids = list_all_message_ids_random(service, since_query, None, sample_size)
     else:
         ids = list_all_message_ids(service, query=since_query, label_ids=None, max_ids=sample_size)
@@ -620,20 +712,22 @@ def main(args=None) -> None:
 
     # Fetch all metadata using batching
     # When using random sampling, fetch complete metadata (all headers + payload structure)
-    metadata_scope = "all headers + payload structure" if args.random_sample else "From header only"
+    metadata_scope = "all headers + payload structure" if use_random else "From header only"
     log.info(f"Fetching metadata: scope={metadata_scope}")
     batch_start = time.perf_counter()
-    messages = batch_get_metadata(service, ids, full_metadata=args.random_sample)
+    messages = batch_get_metadata(service, ids, full_metadata=use_random)
     batch_elapsed = time.perf_counter() - batch_start
     log.info(f"Batch metadata fetch complete: elapsed={batch_elapsed:.2f}s, rate={len(messages)/batch_elapsed:.1f} msg/s")
 
-    # Log complete message metadata when using random sampling
-    if args.random_sample:
+    # Log complete message metadata when using random sampling (controlled by LOG_MESSAGES env var)
+    if use_random and os.getenv("LOG_MESSAGES", "false").lower() in ("true", "1", "yes"):
         log.info("[MESSAGE_METADATA_START] Logging %d messages with complete metadata", len(messages))
         for i, msg in enumerate(messages, 1):
             # Log the complete message metadata as JSON
             log.info("[MESSAGE_METADATA] msg_num=%d/%d data=%s", i, len(messages), json.dumps(msg, default=str))
         log.info("[MESSAGE_METADATA_END] Logged %d messages", len(messages))
+    elif use_random:
+        log.info("Message metadata logging disabled (set LOG_MESSAGES=true to enable)")
 
     # Aggregate statistics
     by_day = Counter()
@@ -644,7 +738,7 @@ def main(args=None) -> None:
     email_stats: Dict[str, SenderStats] = defaultdict(SenderStats)
 
     # Track if attachment data is available (only in random sample mode)
-    has_attachment_data = args.random_sample
+    has_attachment_data = use_random
 
     # Log timezone conversion example with first message
     if messages:
@@ -736,23 +830,27 @@ def main(args=None) -> None:
         sum(stats.message_count for _, stats in top_25_emails)
     )
 
-    # Save to database for historical tracking
-    from gmail_stats_db import save_run
+    # Save to database for historical tracking (skip if --skip-db)
+    run_id = None
+    if getattr(args, 'skip_db', False):
+        log.info("Skipping database persistence (--skip-db)")
+    else:
+        from gmail_stats_db import save_run
 
-    log.info("Saving run to database...")
-    db_save_start = time.perf_counter()
-    run_id = save_run(
-        account_email=email,
-        days_analyzed=DAYS,
-        sample_size=sample_size,
-        sampling_method=sampling_method,
-        messages_examined=len(messages),
-        total_mailbox_messages=total_msgs,
-        domain_stats=dict(domain_stats),  # Convert defaultdict to dict
-        email_stats=dict(email_stats)
-    )
-    db_save_elapsed = time.perf_counter() - db_save_start
-    log.info(f"Database save complete: run_id={run_id} elapsed={db_save_elapsed:.2f}s")
+        log.info("Saving run to database...")
+        db_save_start = time.perf_counter()
+        run_id = save_run(
+            account_email=email,
+            days_analyzed=DAYS,
+            sample_size=sample_size,
+            sampling_method=sampling_method,
+            messages_examined=len(messages),
+            total_mailbox_messages=total_msgs,
+            domain_stats=dict(domain_stats),  # Convert defaultdict to dict
+            email_stats=dict(email_stats)
+        )
+        db_save_elapsed = time.perf_counter() - db_save_start
+        log.info(f"Database save complete: run_id={run_id} elapsed={db_save_elapsed:.2f}s")
 
     # Export to CSV if requested
     if getattr(args, 'export_csv', False):
@@ -856,6 +954,20 @@ def main(args=None) -> None:
         print(f"  {summary_path.name}")
         if getattr(args, 'html', False):
             print(f"  report.html")
+
+        # Upload to GCS if bucket specified
+        if getattr(args, 'gcs_bucket', None):
+            from gcs_upload import upload_directory_to_gcs
+
+            gcs_base = f"{args.gcs_bucket.rstrip('/')}/{output_dir.name}"
+            log.info(f"Uploading to GCS: {gcs_base}")
+            gcs_start = time.perf_counter()
+            uploaded = upload_directory_to_gcs(output_dir, gcs_base)
+            gcs_elapsed = time.perf_counter() - gcs_start
+            log.info(f"GCS upload complete: {len(uploaded)} files, elapsed={gcs_elapsed:.2f}s")
+            print(f"\nUploaded to GCS: {gcs_base}/")
+            for uri in uploaded:
+                print(f"  {uri}")
 
     # Print analysis summary
     print(f"\nTotal messages scanned: {len(messages):,}")

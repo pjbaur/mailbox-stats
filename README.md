@@ -28,8 +28,10 @@ mailbox-stats/
 ├── gmail_stats_export.py   # CSV/JSON export functionality
 ├── gmail_stats_html.py     # Static HTML report generator
 ├── gmail_stats_server.py   # FastAPI web server (--serve mode)
+├── gcs_upload.py           # Google Cloud Storage upload utility
 ├── gmail_pull.py           # Quick API connectivity test
 ├── main.py                 # Flask app (legacy Cloud Run)
+├── dockerfile              # Container configuration for Cloud Run
 ├── requirements.txt        # Python dependencies
 ├── pytest.ini              # Test configuration
 ├── client_secret.json      # OAuth credentials (gitignored)
@@ -133,40 +135,73 @@ USER_EMAIL = 'your-email@yourdomain.com'
 
 ## Deployment to Cloud Run
 
-### Option 1: Deploy from Source (Recommended)
+### Cloud Run Jobs (Recommended for Batch Analysis)
+
+Cloud Run Jobs are ideal for this batch workload - they run on-demand and don't require a persistent server.
+
+#### 1. Setup
 
 ```bash
-# Deploy directly from source code
+export PROJECT_ID="your-project-id"
+export REGION="us-central1"
+gcloud config set project $PROJECT_ID
+
+# Create Artifact Registry repository
+gcloud artifacts repositories create mailbox-stats \
+  --repository-format=docker --location=$REGION
+
+gcloud auth configure-docker ${REGION}-docker.pkg.dev
+
+# Store OAuth token in Secret Manager (run locally first to generate token.json)
+gcloud secrets create gmail-token --data-file=token.json
+
+# Create GCS bucket for outputs
+gsutil mb -l $REGION gs://${PROJECT_ID}-mailbox-stats-output
+```
+
+#### 2. Build and Push Container
+
+```bash
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/mailbox-stats/gmail-stats:$(git rev-parse --short HEAD)"
+docker build -t "$IMAGE" .
+docker push "$IMAGE"
+```
+
+#### 3. Create Cloud Run Job
+
+```bash
+gcloud run jobs create mailbox-stats \
+  --image "$IMAGE" \
+  --region $REGION \
+  --memory 2Gi --cpu 2 \
+  --task-timeout 3600 \
+  --set-env-vars "MODE=sample,SAMPLE_SIZE=5000,EXPORT_CSV=1,HTML_REPORT=1,SKIP_DB=1,GCS_BUCKET=gs://${PROJECT_ID}-mailbox-stats-output/reports,OUTPUT_DIR=/tmp/out" \
+  --set-secrets "TOKEN_JSON=gmail-token:latest"
+```
+
+#### 4. Execute Job
+
+```bash
+# Run the job
+gcloud run jobs execute mailbox-stats --region $REGION
+
+# Watch logs
+gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=mailbox-stats" --limit=100
+```
+
+### Cloud Run Services (Legacy - Web Server)
+
+For the legacy Flask web app (`main.py`):
+
+```bash
+# Deploy from source
 gcloud run deploy gmail-app \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --platform managed \
   --set-env-vars USE_SERVICE_ACCOUNT=true
-```
 
-The service account key will be included in the container during build.
-For a shorter checklist, see `DEPLOYMENT.md`.
-
-### Option 2: Build and Deploy Separately
-
-```bash
-# Build container
-gcloud builds submit --tag gcr.io/$PROJECT_ID/gmail-app
-
-# Deploy to Cloud Run
-gcloud run deploy gmail-app \
-  --image gcr.io/$PROJECT_ID/gmail-app \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --platform managed \
-  --set-env-vars USE_SERVICE_ACCOUNT=true
-```
-
-### Get Your Service URL
-
-After deployment:
-```bash
+# Get service URL
 gcloud run services describe gmail-app --region us-central1 --format 'value(status.url)'
 ```
 
@@ -264,30 +299,47 @@ The main tool is `gmail_stats.py`, a command-line interface for analyzing Gmail 
 ### Basic Usage
 
 ```bash
-# Default analysis (chronological sampling)
+# Default analysis (full chronological scan)
 python gmail_stats.py
 
 # Random sampling with full metadata (recommended for accurate stats)
+python gmail_stats.py --mode sample
+# or legacy flag:
 python gmail_stats.py --random-sample
 
 # Custom sample size
-python gmail_stats.py --random-sample --sample-size 2500
+python gmail_stats.py --mode sample --sample-size 2500
 ```
 
 ### Output Options
 
 ```bash
 # Export to dated folder with CSVs and JSON summary
-python gmail_stats.py --random-sample --out ./out
+python gmail_stats.py --mode sample --out ./out
 
 # Add HTML report
-python gmail_stats.py --random-sample --out ./out --html
+python gmail_stats.py --mode sample --out ./out --html
+
+# Upload outputs to Google Cloud Storage
+python gmail_stats.py --mode sample --out ./out --html --gcs-bucket gs://my-bucket/reports
 
 # Start interactive web dashboard after analysis
-python gmail_stats.py --random-sample --serve
+python gmail_stats.py --mode sample --serve
 
 # Specify custom port for web server
-python gmail_stats.py --random-sample --serve 3000
+python gmail_stats.py --mode sample --serve 3000
+
+# Skip SQLite database persistence (for cloud runs)
+python gmail_stats.py --mode sample --skip-db
+```
+
+### Environment Variable Configuration
+
+All CLI flags can be configured via environment variables (useful for Cloud Run):
+
+```bash
+# Run with env vars instead of CLI flags
+MODE=sample SAMPLE_SIZE=5000 EXPORT_CSV=1 HTML_REPORT=1 SKIP_DB=1 python gmail_stats.py
 ```
 
 ### Output Files (with --out)
@@ -351,9 +403,41 @@ curl $SERVICE_URL/gmail-test
 
 ## Environment Variables
 
-- `PORT` - Server port (set automatically by Cloud Run)
-- `USE_SERVICE_ACCOUNT` - Set to "true" to use service account authentication
-- `USER_EMAIL` - Read from environment or `.env` for service account impersonation
+### CLI Configuration (for Cloud Run Jobs)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODE` | `full` | Run mode: `full` (chronological) or `sample` (random) |
+| `SAMPLE_SIZE` | `5000` | Number of messages to sample |
+| `RANDOM_SAMPLE` | `false` | Legacy: set to `1` for sample mode |
+| `EXPORT_CSV` | `false` | Export CSV files (`1`, `true`, `yes`) |
+| `HTML_REPORT` | `false` | Generate HTML report |
+| `OUTPUT_DIR` | `None` | Local output directory for exports |
+| `GCS_BUCKET` | `None` | GCS bucket URI (e.g., `gs://bucket/path`) |
+| `SKIP_DB` | `false` | Skip SQLite database persistence |
+| `DAYS` | `30` | Number of days to analyze |
+
+### Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TOKEN_JSON` | `None` | OAuth token JSON string (from Secret Manager) |
+| `TOKEN_PATH` | `token.json` | Path to token file |
+| `CLIENT_SECRET_PATH` | `client_secret.json` | Path to client secret file |
+
+### Database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_PATH` | `gmail_stats.db` | Path to SQLite database file |
+
+### Server (legacy Flask app)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Server port (set automatically by Cloud Run) |
+| `USE_SERVICE_ACCOUNT` | `false` | Use service account authentication |
+| `USER_EMAIL` | `None` | Email for service account impersonation |
 
 ## Cost Considerations
 
